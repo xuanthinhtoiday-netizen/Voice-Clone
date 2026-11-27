@@ -55,7 +55,7 @@ python -m venv .venv
 .venv\Scripts\activate
 
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 ### 2. Xuất mô hình ViZipVoice ONNX INT8 (chạy 1 lần cho chế độ Clone Offline)
