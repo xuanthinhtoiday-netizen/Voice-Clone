@@ -111,15 +111,16 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     const hasLocal = engines.some((e) => e.id === 'vizipvoice');
     if (hasLocal) {
       return [
-        { id: 'vizipvoice' as EngineId, label: 'ViZipVoice', sub: 'Giống 99% · Offline' },
-        { id: 'zipvoice_gpu' as EngineId, label: 'ZipVoice GPU', sub: 'Giống 99% · Nhanh' },
-        { id: 'vieneu' as EngineId, label: 'VieNeu Nano', sub: 'Nhanh nhất · CPU' },
+        { id: 'f5_gpu' as EngineId, label: 'F5-TTS Việt 6000h', sub: 'Flow-Matching · GPU Cloud' },
+        { id: 'vizipvoice' as EngineId, label: 'ViZipVoice', sub: 'Offline CPU' },
       ];
     }
     return [
-      { id: 'zipvoice_gpu' as EngineId, label: 'ZipVoice GPU', sub: 'Giống 99% · A10G' },
-      { id: 'f5_gpu' as EngineId, label: 'F5-TTS Việt', sub: 'Flow-Matching' },
-      { id: 'vieneu_gpu' as EngineId, label: 'VieNeu 48kHz', sub: 'Studio GPU' },
+      {
+        id: 'f5_gpu' as EngineId,
+        label: 'F5-TTS Việt 6000h',
+        sub: 'Flow-Matching · Chuẩn âm sắc · Chống nuốt chữ',
+      },
     ];
   }, [engines]);
 
@@ -135,7 +136,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     return [{ id: 'edge' as EngineId, label: 'Edge Neural Cloud', sub: '300+ giọng · Hono.js Worker' }];
   }, [engines]);
 
-  const defaultCloneEngine = availableCloneOptions[0]?.id || 'zipvoice_gpu';
+  const defaultCloneEngine = availableCloneOptions[0]?.id || 'f5_gpu';
 
   React.useEffect(() => {
     if (selectedClonedId) {
@@ -188,17 +189,15 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     const chars = trimmed.length;
     const words = trimmed ? trimmed.split(/\s+/).length : 0;
     const chunkSize =
-      engine === 'vizipvoice'
-        ? 160
-        : engine === 'zipvoice_gpu'
-          ? 260
-          : engine === 'f5_gpu'
-            ? 300
-            : engine === 'vieneu'
-              ? 240
-              : engine === 'kokoro'
-                ? 420
-                : 1000;
+      engine === 'f5_gpu'
+        ? 135
+        : engine === 'vizipvoice'
+          ? 160
+          : engine === 'vieneu'
+            ? 240
+            : engine === 'kokoro'
+              ? 420
+              : 1000;
     const estChunks = chars === 0 ? 0 : Math.max(1, Math.ceil(chars / chunkSize));
     const estSeconds = Math.round(words / 2.6 / Math.max(speed, 0.5));
     return { chars, words, estChunks, estSeconds };
@@ -582,7 +581,15 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               Bộ máy tổng hợp
             </label>
             {voiceMode === 'cloned' ? (
-              <div className="grid grid-cols-3 gap-1.5">
+              <div
+                className={`grid gap-1.5 ${
+                  availableCloneOptions.length === 1
+                    ? 'grid-cols-1'
+                    : availableCloneOptions.length === 2
+                      ? 'grid-cols-2'
+                      : 'grid-cols-3'
+                }`}
+              >
                 {availableCloneOptions.map((opt) => (
                   <button
                     key={opt.id}
@@ -590,14 +597,14 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       setEngine(opt.id);
                       setLocalError(null);
                     }}
-                    className={`px-2 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
+                    className={`px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
                       engine === opt.id
                         ? 'bg-white border-[#111315] text-[#111315]'
                         : 'bg-white/60 border-[#E2E4E9] text-[#5C626E] hover:border-[#C4C9D1]'
                     }`}
                   >
-                    <div className="text-[11.5px] font-semibold truncate">{opt.label}</div>
-                    <div className="text-[10px] text-[#717784] truncate mt-0.5">{opt.sub}</div>
+                    <div className="text-[12px] font-semibold truncate">{opt.label}</div>
+                    <div className="text-[10.5px] text-[#717784] truncate mt-0.5">{opt.sub}</div>
                   </button>
                 ))}
               </div>
@@ -822,10 +829,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
           {/* Sliders */}
           <div className="pt-4 border-t border-[#E5E7EB] space-y-4">
-            {(engine === 'vieneu' ||
-              engine === 'vizipvoice' ||
-              engine === 'zipvoice_gpu' ||
-              engine === 'f5_gpu') && (
+            {(engine === 'vieneu' || engine === 'vizipvoice') && (
               <div className="space-y-1.5">
                 <label className="block text-[12px] font-medium text-[#525866]">
                   Tốc độ xử lý AI

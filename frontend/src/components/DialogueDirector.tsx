@@ -165,8 +165,6 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
   const vieneuVoices = stockVoicesByEngine['vieneu'] || [];
   const hasLocalViZip = engines.some((e) => e.id === 'vizipvoice');
   const hasLocalVieNeu = engines.some((e) => e.id === 'vieneu');
-  const hasCloudF5 = engines.some((e) => e.id === 'f5_gpu');
-  const hasCloudVieNeu = engines.some((e) => e.id === 'vieneu_gpu');
 
   return (
     <div className="max-w-4xl mx-auto px-6 lg:px-10 py-8 pb-32 space-y-6">
@@ -303,38 +301,20 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
                   }}
                   className="flex-1 min-w-[210px] px-2.5 py-1.5 rounded-lg bg-white border border-[#DCDFE4] text-xs text-[#111315] focus:outline-none focus:border-[#111315]"
                 >
-                  {clonedVoices.length > 0 && hasLocalViZip && (
-                    <optgroup label="Giọng Clone (ViZipVoice 7000h — Giống thật 99% Offline)">
-                      {clonedVoices.map((cv) => (
-                        <option key={`vz_${cv.id}`} value={`cloned::vizipvoice::${cv.id}`}>
-                          Clone 99% · {cv.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
                   {clonedVoices.length > 0 && (
-                    <optgroup label="Giọng Clone (ZipVoice GPU Cloud — Giống 99%)">
-                      {clonedVoices.map((cv) => (
-                        <option key={`vzg_${cv.id}`} value={`cloned::zipvoice_gpu::${cv.id}`}>
-                          Clone GPU · {cv.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {clonedVoices.length > 0 && hasCloudF5 && (
-                    <optgroup label="Giọng Clone (F5-TTS Việt GPU Cloud)">
+                    <optgroup label="Giọng Clone (F5-TTS Việt 6000h — GPU Cloud)">
                       {clonedVoices.map((cv) => (
                         <option key={`f5g_${cv.id}`} value={`cloned::f5_gpu::${cv.id}`}>
-                          F5-TTS · {cv.name}
+                          F5-TTS Việt · {cv.name}
                         </option>
                       ))}
                     </optgroup>
                   )}
-                  {clonedVoices.length > 0 && hasCloudVieNeu && (
-                    <optgroup label="Giọng Clone (VieNeu v3 Turbo 48kHz GPU)">
+                  {clonedVoices.length > 0 && hasLocalViZip && (
+                    <optgroup label="Giọng Clone (ViZipVoice 7000h Offline)">
                       {clonedVoices.map((cv) => (
-                        <option key={`vng_${cv.id}`} value={`cloned::vieneu_gpu::${cv.id}`}>
-                          VieNeu 48kHz · {cv.name}
+                        <option key={`vz_${cv.id}`} value={`cloned::vizipvoice::${cv.id}`}>
+                          ViZipVoice · {cv.name}
                         </option>
                       ))}
                     </optgroup>

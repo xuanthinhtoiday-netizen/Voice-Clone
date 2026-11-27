@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { fetchEdgeVoices, synthesizeEdgeChunk } from './edgeTts';
-import { synthesizeCloudCloneChunk, type CloudCloneEngine } from './gradioClone';
+import { synthesizeF5VietnameseChunk } from './gradioClone';
 
 export interface Env {
   ASSETS: Fetcher;
@@ -53,6 +53,19 @@ app.get('/api/engines', (c) => {
     ffmpeg_ready: true,
     engines: [
       {
+        id: 'f5_gpu',
+        name: 'F5-TTS Việt 6000h (GPU Cloud)',
+        source_repo: 'SWivid/F5-TTS · hynt/F5-TTS-Vietnamese-ViVoice',
+        ready: true,
+        supports_cloning: true,
+        supports_blending: false,
+        supports_subtitles: true,
+        max_chunk_chars: 135,
+        badge: hasToken ? '6000h Việt · A10G GPU' : '6000h Việt · Nên thêm HF Token',
+        description:
+          'Bộ máy nhân bản giọng tiếng Việt Flow-Matching 6.000 giờ chuyên sâu: tự động căn mẫu giọng 5–9 giây, chuẩn hóa chữ số/từ tiếng Anh, chia đoạn ngắn chống nuốt chữ và giữ trọn âm sắc gốc.',
+      },
+      {
         id: 'edge',
         name: 'Edge Neural Cloud (Hono Worker)',
         source_repo: 'rany2/edge-tts · Cloudflare Workers',
@@ -64,45 +77,6 @@ app.get('/api/engines', (c) => {
         badge: 'Siêu tốc · 300+ giọng',
         description:
           'Chạy trực tiếp trên Cloudflare Workers qua WebSocket tới Microsoft Neural Voices. Tốc độ cực nhanh, không giới hạn ký tự và xuất phụ đề SRT từng chữ.',
-      },
-      {
-        id: 'zipvoice_gpu',
-        name: 'ZipVoice Việt Nam (GPU Cloud)',
-        source_repo: 'k2-fsa/ZipVoice · sleeper371/zipvoice_vi',
-        ready: true,
-        supports_cloning: true,
-        supports_blending: false,
-        supports_subtitles: true,
-        max_chunk_chars: 260,
-        badge: hasToken ? 'Giống 99% · A10G GPU' : 'Giống 99% · Nên thêm HF Token',
-        description:
-          'Clone giọng tiếng Việt Flow-Matching giữ trọn vùng miền Bắc/Trung/Nam qua NVIDIA A10G GPU Cloud. Chạy trực tiếp từ Hono.js trên Cloudflare.',
-      },
-      {
-        id: 'f5_gpu',
-        name: 'F5-TTS Việt Nam (GPU Cloud)',
-        source_repo: 'SWivid/F5-TTS · hynt/F5-TTS-Vietnamese',
-        ready: true,
-        supports_cloning: true,
-        supports_blending: false,
-        supports_subtitles: true,
-        max_chunk_chars: 300,
-        badge: 'Flow-Matching · A10G GPU',
-        description:
-          'Mô hình F5-TTS tiếng Việt chạy trên NVIDIA A10G GPU Cloud, giữ tốt nhịp đọc và biểu cảm tự nhiên của giọng mẫu.',
-      },
-      {
-        id: 'vieneu_gpu',
-        name: 'VieNeu v3 Turbo 48kHz (GPU Cloud)',
-        source_repo: 'pnnbao-ump/VieNeu-TTS-v3-Turbo',
-        ready: true,
-        supports_cloning: true,
-        supports_blending: false,
-        supports_subtitles: true,
-        max_chunk_chars: 420,
-        badge: '48 kHz Studio · A10G GPU',
-        description:
-          'Mô hình VieNeu-TTS v3 Turbo chất lượng 48 kHz chạy trên NVIDIA A10G GPU Cloud, không cần nhập lời thoại ref_text.',
       },
     ],
   });
@@ -204,45 +178,45 @@ app.post('/api/tts/edge-chunk', async (c) => {
 app.post('/api/tts/clone-chunk', async (c) => {
   try {
     const body = (await c.req.json()) as {
-      engine?: CloudCloneEngine;
       text: string;
-      ref_audio_base64: string;
+      ref_audio_base64?: string;
       ref_filename?: string;
       ref_mime_type?: string;
-      ref_text?: string;
+      uploaded_ref_path?: string;
       speed?: number;
-      quality_mode?: 'turbo' | 'balanced' | 'high';
+      normalize_vietnamese?: boolean;
     };
 
     if (!body.text?.trim()) {
       return c.json({ detail: 'Văn bản trống.' }, 400);
     }
-    if (!body.ref_audio_base64) {
+    if (!body.ref_audio_base64 && !body.uploaded_ref_path) {
       return c.json({ detail: 'Thiếu dữ liệu giọng mẫu.' }, 400);
     }
 
     const hfToken = c.req.header('x-hf-token')?.trim() || c.env.HF_TOKEN;
-    const refBytes = base64ToUint8(body.ref_audio_base64);
+    const refBytes = body.ref_audio_base64 ? base64ToUint8(body.ref_audio_base64) : undefined;
 
-    const out = await synthesizeCloudCloneChunk({
-      engine: body.engine || 'zipvoice_gpu',
+    const out = await synthesizeF5VietnameseChunk({
       text: body.text,
       refAudioBytes: refBytes,
       refFilename: body.ref_filename || 'ref.wav',
       refMimeType: body.ref_mime_type || 'audio/wav',
-      refText: body.ref_text,
+      uploadedRefPath: body.uploaded_ref_path,
       speed: body.speed ?? 1.0,
-      qualityMode: body.quality_mode || 'turbo',
+      normalizeVietnamese: body.normalize_vietnamese !== false,
       hfToken,
     });
 
     return c.json({
       audio_base64: uint8ToBase64(out.audioBytes),
       mime_type: out.mimeType,
+      uploaded_ref_path: out.uploadedRefPath,
+      normalized_text: out.normalizedText,
     });
   } catch (err) {
     return c.json(
-      { detail: err instanceof Error ? err.message : 'Lỗi nhân bản giọng nói trên GPU Cloud' },
+      { detail: err instanceof Error ? err.message : 'Lỗi nhân bản giọng nói trên F5-TTS Việt GPU' },
       500
     );
   }

@@ -71,7 +71,7 @@ export const EngineHub: React.FC<EngineHubProps> = ({
       setHfTokenInput('');
       setNotice(
         res.has_hf_token
-          ? 'Đã lưu Hugging Face Token — chế độ ZipVoice GPU sẽ chạy nhanh trên NVIDIA A10G.'
+          ? 'Đã lưu Hugging Face Token — chế độ F5-TTS Việt 6000h sẽ chạy nhanh và ổn định trên GPU Cloud.'
           : 'Đã xóa Hugging Face Token.'
       );
       await onRefreshEngines();

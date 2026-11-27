@@ -1,33 +1,16 @@
 /**
- * Pure-fetch Gradio v5/v6 HTTP + SSE client for Cloudflare Workers (Hono.js).
- * Connects directly to NVIDIA A10G GPU Hugging Face Spaces for real Zero-Shot
- * Vietnamese & Multilingual Voice Cloning (ZipVoice-VI, F5-TTS-VN, VieNeu v3 Turbo).
+ * Dedicated pure-fetch Gradio HTTP + SSE client for Cloudflare Workers (Hono.js),
+ * specialized for hynt/F5-TTS-Vietnamese-100h (ViVoice 6,000h DiT model on NVIDIA GPU).
  */
 
-export type CloudCloneEngine = 'zipvoice_gpu' | 'f5_gpu' | 'vieneu_gpu';
+import { normalizeVietnameseForF5 } from './f5TextNorm';
 
-interface SpaceSpec {
-  id: string;
-  baseUrl: string;
-  apiName: string;
-}
+export type CloudCloneEngine = 'f5_gpu';
 
-const SPACES: Record<CloudCloneEngine, SpaceSpec> = {
-  zipvoice_gpu: {
-    id: 'sleeper371/zipvoice_vi',
-    baseUrl: 'https://sleeper371-zipvoice-vi.hf.space',
-    apiName: 'synthesize',
-  },
-  f5_gpu: {
-    id: 'hynt/F5-TTS-Vietnamese-100h',
-    baseUrl: 'https://hynt-f5-tts-vietnamese-100h.hf.space',
-    apiName: 'infer_tts',
-  },
-  vieneu_gpu: {
-    id: 'pnnbao-ump/VieNeu-TTS-v3-Turbo',
-    baseUrl: 'https://pnnbao-ump-vieneu-tts-v3-turbo.hf.space',
-    apiName: 'synthesize',
-  },
+const F5_SPACE = {
+  id: 'hynt/F5-TTS-Vietnamese-100h',
+  baseUrl: 'https://hynt-f5-tts-vietnamese-100h.hf.space',
+  apiName: 'infer_tts',
 };
 
 function authHeaders(hfToken?: string): Record<string, string> {
@@ -64,7 +47,7 @@ async function uploadToGradio(
   }
   const paths = (await res.json()) as string[];
   if (!Array.isArray(paths) || !paths[0]) {
-    throw new Error('Gradio Space không trả về đường dẫn tệp mẫu.');
+    throw new Error('F5-TTS GPU Space không trả về đường dẫn tệp mẫu.');
   }
   return paths[0];
 }
@@ -86,12 +69,12 @@ async function callGradioEndpoint(
 
   if (!postRes.ok) {
     const errText = await postRes.text().catch(() => '');
-    throw new Error(`Gradio call error (${postRes.status}): ${errText.slice(0, 200)}`);
+    throw new Error(`F5-TTS call error (${postRes.status}): ${errText.slice(0, 200)}`);
   }
 
   const { event_id: eventId } = (await postRes.json()) as { event_id?: string };
   if (!eventId) {
-    throw new Error('Gradio Space không trả về event_id.');
+    throw new Error('F5-TTS GPU Space không trả về event_id.');
   }
 
   const sseRes = await fetch(`${baseUrl}/gradio_api/call/${apiName}/${eventId}`, {
@@ -103,7 +86,7 @@ async function callGradioEndpoint(
   });
 
   if (!sseRes.ok || !sseRes.body) {
-    throw new Error(`Không nhận được kết quả SSE từ GPU Space (${sseRes.status}).`);
+    throw new Error(`Không nhận được kết quả từ F5-TTS GPU (${sseRes.status}).`);
   }
 
   const reader = sseRes.body.getReader();
@@ -135,24 +118,24 @@ async function callGradioEndpoint(
           }
           if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('zerogpu')) {
             throw new Error(
-              'GPU Cloud miễn phí tạm hết hạn mức ZeroGPU. Hãy vào mục "Mô hình AI" dán Hugging Face Token miễn phí (huggingface.co/settings/tokens) để mở khóa hạn mức cao hơn.'
+              'F5-TTS GPU miễn phí tạm hết hạn mức ZeroGPU. Vào mục "Mô hình AI" dán Hugging Face Token miễn phí (huggingface.co/settings/tokens) để mở khóa hạn mức cao hơn.'
             );
           }
-          throw new Error(`GPU Space báo lỗi: ${msg}`);
+          throw new Error(`F5-TTS GPU báo lỗi: ${msg}`);
         }
         if (currentEvent === 'complete') {
           try {
             const parsed = JSON.parse(payload);
             if (Array.isArray(parsed)) return parsed;
           } catch {
-            throw new Error('Không giải mã được dữ liệu trả về từ GPU Space.');
+            throw new Error('Không giải mã được dữ liệu trả về từ F5-TTS GPU.');
           }
         }
       }
     }
   }
 
-  throw new Error('GPU Space đóng kết nối trước khi hoàn tất tổng hợp.');
+  throw new Error('F5-TTS GPU đóng kết nối trước khi hoàn tất tổng hợp.');
 }
 
 function extractAudioUrl(baseUrl: string, item: unknown): string {
@@ -165,70 +148,77 @@ function extractAudioUrl(baseUrl: string, item: unknown): string {
     if (obj.url) return obj.url;
     if (obj.path) return `${baseUrl}/gradio_api/file=${obj.path}`;
   }
-  throw new Error('Không tìm thấy URL tệp âm thanh từ GPU Space.');
+  throw new Error('Không tìm thấy URL tệp âm thanh từ F5-TTS GPU.');
 }
 
-export async function synthesizeCloudCloneChunk(params: {
-  engine: CloudCloneEngine;
+export async function synthesizeF5VietnameseChunk(params: {
   text: string;
-  refAudioBytes: Uint8Array;
-  refFilename: string;
-  refMimeType: string;
-  refText?: string;
+  refAudioBytes?: Uint8Array;
+  refFilename?: string;
+  refMimeType?: string;
+  uploadedRefPath?: string;
   speed?: number;
-  qualityMode?: 'turbo' | 'balanced' | 'high';
+  normalizeVietnamese?: boolean;
   hfToken?: string;
-}): Promise<{ audioBytes: Uint8Array; mimeType: string }> {
-  const spec = SPACES[params.engine] || SPACES.zipvoice_gpu;
+}): Promise<{
+  audioBytes: Uint8Array;
+  mimeType: string;
+  uploadedRefPath: string;
+  normalizedText: string;
+}> {
+  const preparedText =
+    params.normalizeVietnamese === false
+      ? params.text.trim()
+      : normalizeVietnameseForF5(params.text);
+
+  if (!preparedText) {
+    throw new Error('Đoạn văn bản sau chuẩn hóa bị trống.');
+  }
+
+  const clampedSpeed = Math.max(0.5, Math.min(1.8, Number((params.speed ?? 1.0).toFixed(2))));
+
+  const invokeWithPath = async (pathOnSpace: string) => {
+    const filePayload = {
+      path: pathOnSpace,
+      meta: { _type: 'gradio.FileData' },
+    };
+    const result = await callGradioEndpoint(
+      F5_SPACE.baseUrl,
+      F5_SPACE.apiName,
+      [filePayload, preparedText, clampedSpeed],
+      params.hfToken
+    );
+    const audioUrl = extractAudioUrl(F5_SPACE.baseUrl, result[0]);
+    const audioRes = await fetch(audioUrl, { headers: authHeaders(params.hfToken) });
+    if (!audioRes.ok) {
+      throw new Error(`Không tải được âm thanh kết quả từ F5-TTS GPU (${audioRes.status}).`);
+    }
+    const audioBytes = new Uint8Array(await audioRes.arrayBuffer());
+    const mimeType = audioRes.headers.get('content-type') || 'audio/wav';
+    return { audioBytes, mimeType, uploadedRefPath: pathOnSpace, normalizedText: preparedText };
+  };
+
+  // Reuse already-uploaded reference audio path on Space if provided (much faster for multi-chunk scripts)
+  if (params.uploadedRefPath) {
+    try {
+      return await invokeWithPath(params.uploadedRefPath);
+    } catch (err) {
+      // If cached path expired on Space and we have bytes, re-upload seamlessly
+      if (!params.refAudioBytes) throw err;
+    }
+  }
+
+  if (!params.refAudioBytes || params.refAudioBytes.length === 0) {
+    throw new Error('Thiếu dữ liệu tệp giọng mẫu để nhân bản.');
+  }
+
   const uploadedPath = await uploadToGradio(
-    spec.baseUrl,
+    F5_SPACE.baseUrl,
     params.refAudioBytes,
-    params.refFilename,
-    params.refMimeType,
+    params.refFilename || 'ref.wav',
+    params.refMimeType || 'audio/wav',
     params.hfToken
   );
 
-  const filePayload = {
-    path: uploadedPath,
-    meta: { _type: 'gradio.FileData' },
-  };
-
-  let callData: unknown[];
-  if (params.engine === 'zipvoice_gpu') {
-    const steps = params.qualityMode === 'high' ? 12 : params.qualityMode === 'balanced' ? 8 : 6;
-    callData = [
-      filePayload,
-      (params.refText || 'xin chào đây là giọng nói mẫu của tôi.').trim(),
-      params.text,
-      params.speed ?? 1.0,
-      steps,
-      666,
-    ];
-  } else if (params.engine === 'f5_gpu') {
-    callData = [filePayload, params.text, params.speed ?? 1.0];
-  } else {
-    // vieneu_gpu (pnnbao-ump/VieNeu-TTS-v3-Turbo)
-    callData = [
-      params.text,
-      'Hải Đăng',
-      filePayload,
-      0.8,
-      25,
-      0.95,
-      1.2,
-      300,
-      256,
-    ];
-  }
-
-  const result = await callGradioEndpoint(spec.baseUrl, spec.apiName, callData, params.hfToken);
-  const audioUrl = extractAudioUrl(spec.baseUrl, result[0]);
-
-  const audioRes = await fetch(audioUrl, { headers: authHeaders(params.hfToken) });
-  if (!audioRes.ok) {
-    throw new Error(`Không tải được âm thanh kết quả từ GPU Space (${audioRes.status}).`);
-  }
-  const buf = new Uint8Array(await audioRes.arrayBuffer());
-  const mimeType = audioRes.headers.get('content-type') || 'audio/wav';
-  return { audioBytes: buf, mimeType };
+  return invokeWithPath(uploadedPath);
 }

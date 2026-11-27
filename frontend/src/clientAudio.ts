@@ -125,6 +125,19 @@ export function smartChunkText(rawText: string, maxChars: number): string[] {
     if (current) chunks.push(current);
   }
 
+  // Merge tiny trailing orphan fragments (< 28 chars) into neighbors so F5-TTS never hallucinates
+  if (chunks.length > 1 && maxChars <= 200) {
+    const merged: string[] = [];
+    for (const ch of chunks) {
+      if (merged.length > 0 && ch.length < 28 && merged[merged.length - 1].length + ch.length + 1 <= maxChars + 35) {
+        merged[merged.length - 1] = `${merged[merged.length - 1]} ${ch}`;
+      } else {
+        merged.push(ch);
+      }
+    }
+    return merged;
+  }
+
   return chunks;
 }
 
@@ -212,6 +225,87 @@ function normalizeLinearPeakSafe(samples: Float32Array, targetDb = -20.0): Float
   return out;
 }
 
+function trimEdgeSilence(
+  pcm: Float32Array,
+  sr: number,
+  threshold = 0.009,
+  keepLeadSec = 0.04,
+  keepTailSec = 0.06
+): Float32Array {
+  if (pcm.length < sr * 0.2) return pcm;
+  const win = Math.floor(sr * 0.015); // 15ms RMS window
+  let start = 0;
+  let end = pcm.length;
+
+  for (let i = 0; i + win < pcm.length; i += Math.floor(win / 2)) {
+    let sumSq = 0;
+    for (let j = i; j < i + win; j++) sumSq += pcm[j] * pcm[j];
+    if (Math.sqrt(sumSq / win) >= threshold) {
+      start = Math.max(0, i - Math.floor(sr * keepLeadSec));
+      break;
+    }
+  }
+
+  for (let i = pcm.length - win; i >= start; i -= Math.floor(win / 2)) {
+    let sumSq = 0;
+    for (let j = i; j < i + win; j++) sumSq += pcm[j] * pcm[j];
+    if (Math.sqrt(sumSq / win) >= threshold) {
+      end = Math.min(pcm.length, i + win + Math.floor(sr * keepTailSec));
+      break;
+    }
+  }
+
+  if (end - start < sr * 0.15) return pcm;
+  return pcm.slice(start, end);
+}
+
+/**
+ * Finds the quietest natural pause valley between minSec and maxSec so reference audio
+ * is NEVER sliced mid-word (which causes F5-TTS to hallucinate/bleed the cut word).
+ */
+function findSilenceCutPoint(pcm: Float32Array, sr: number, minSec: number, maxSec: number): number {
+  const maxIdx = Math.min(pcm.length, Math.floor(maxSec * sr));
+  const minIdx = Math.min(maxIdx, Math.floor(minSec * sr));
+  if (pcm.length <= maxIdx) return pcm.length;
+
+  const win = Math.floor(sr * 0.12); // 120ms valley window
+  const step = Math.floor(sr * 0.02); // 20ms hop
+  let bestCut = maxIdx;
+  let lowestRms = Infinity;
+
+  for (let i = minIdx; i + win <= maxIdx; i += step) {
+    let sumSq = 0;
+    for (let j = i; j < i + win; j++) sumSq += pcm[j] * pcm[j];
+    const rms = Math.sqrt(sumSq / win);
+    if (rms < lowestRms) {
+      lowestRms = rms;
+      bestCut = i + Math.floor(win / 2);
+    }
+  }
+  return bestCut;
+}
+
+/**
+ * Applies smooth fade-in/out and adds 200ms leading + 350ms trailing silence.
+ * Clean trailing silence ensures Pho-Whisper transcribes the full final word and
+ * F5-TTS cleanly terminates reference attention without bleeding the final syllable.
+ */
+function padReferenceSilence(pcm: Float32Array, sr: number, leadSec = 0.2, tailSec = 0.35): Float32Array {
+  const faded = new Float32Array(pcm);
+  const fadeSamples = Math.min(Math.floor(sr * 0.018), Math.floor(faded.length / 4));
+  for (let i = 0; i < fadeSamples; i++) {
+    const g = 0.5 * (1 - Math.cos((Math.PI * i) / fadeSamples));
+    faded[i] *= g;
+    faded[faded.length - 1 - i] *= g;
+  }
+
+  const lead = Math.floor(sr * leadSec);
+  const tail = Math.floor(sr * tailSec);
+  const out = new Float32Array(lead + faded.length + tail);
+  out.set(faded, lead);
+  return out;
+}
+
 function estimatePitchHz(samples: Float32Array, sr: number): number {
   const frameLen = Math.min(samples.length, sr * 2);
   if (frameLen < 1024) return 155;
@@ -258,6 +352,41 @@ async function decodeToMono24k(arrayBuffer: ArrayBuffer): Promise<Float32Array> 
   }
 }
 
+/**
+ * Ensures any saved reference Blob (even from older sessions) meets F5-TTS-Vietnamese's
+ * ideal 5–9s phrase-aligned window with clean 200ms lead + 350ms trailing silence.
+ */
+export async function ensureF5OptimalReference(blob: Blob): Promise<Blob> {
+  try {
+    const sr = 24000;
+    const rawBuf = await blob.arrayBuffer();
+    let pcm = await decodeToMono24k(rawBuf);
+
+    // Check if trailing 280ms is already clean silence and total duration is <= 9.2s
+    const tailCheckSamples = Math.min(pcm.length, Math.floor(sr * 0.28));
+    let tailPeak = 0;
+    for (let i = pcm.length - tailCheckSamples; i < pcm.length; i++) {
+      const a = Math.abs(pcm[i]);
+      if (a > tailPeak) tailPeak = a;
+    }
+    const durSec = pcm.length / sr;
+    if (durSec <= 9.2 && tailPeak < 0.005) {
+      return blob;
+    }
+
+    pcm = trimEdgeSilence(pcm, sr, 0.009, 0.05, 0.05);
+    if (pcm.length > sr * 8.6) {
+      const cutAt = findSilenceCutPoint(pcm, sr, 5.0, 8.6);
+      pcm = pcm.slice(0, cutAt);
+    }
+    pcm = normalizeLinearPeakSafe(pcm, -20.0);
+    pcm = padReferenceSilence(pcm, sr, 0.2, 0.35);
+    return encodeWavPcm16(pcm, sr);
+  } catch {
+    return blob;
+  }
+}
+
 export async function preprocessReferenceAudio(
   file: File,
   denoise: boolean
@@ -273,20 +402,13 @@ export async function preprocessReferenceAudio(
   let pcm = await decodeToMono24k(rawBuf);
   const sr = 24000;
 
-  // Trim leading/trailing silence
-  const thresh = 0.008;
-  let start = 0;
-  let end = pcm.length - 1;
-  while (start < pcm.length && Math.abs(pcm[start]) < thresh) start++;
-  while (end > start && Math.abs(pcm[end]) < thresh) end--;
-  start = Math.max(0, start - Math.floor(sr * 0.12));
-  end = Math.min(pcm.length, end + Math.floor(sr * 0.12));
-  pcm = pcm.subarray(start, end);
+  // Trim excess leading/trailing silence cleanly using RMS windows
+  pcm = trimEdgeSilence(pcm, sr, 0.009, 0.05, 0.06);
 
-  // Cap optimal reference duration at 12 seconds for fast, accurate zero-shot GPU cloning
-  const maxSamples = sr * 12;
-  if (pcm.length > maxSamples) {
-    pcm = pcm.subarray(0, maxSamples);
+  // Smart silence-valley cut within 5.0–8.6s (optimal F5-TTS-Vietnamese window)
+  if (pcm.length > sr * 8.6) {
+    const cutAt = findSilenceCutPoint(pcm, sr, 5.0, 8.6);
+    pcm = pcm.slice(0, cutAt);
   }
 
   // Optional gentle 80Hz high-pass if denoise is checked
@@ -304,23 +426,32 @@ export async function preprocessReferenceAudio(
   }
 
   pcm = normalizeLinearPeakSafe(pcm, -20.0);
-
-  const durationSec = Number((pcm.length / sr).toFixed(2));
+  const speechDurationSec = Number((pcm.length / sr).toFixed(2));
   const pitchHz = estimatePitchHz(pcm, sr);
   const waveformPeaks = extractWaveformPeaks(pcm, 96);
 
-  let qualityScore = 88;
-  let qualityNote = 'Giọng mẫu sạch, chuẩn phòng thu — sẵn sàng Clone trên GPU Cloud.';
-  if (durationSec < 3.0) {
+  // Pad clean 200ms leading + 350ms trailing silence to prevent word bleed on F5-TTS
+  const paddedPcm = padReferenceSilence(pcm, sr, 0.2, 0.35);
+
+  let qualityScore = 90;
+  let qualityNote = 'Chuẩn F5-TTS Việt 6000h — đã căn ngắt câu và đệm lặng chống dính từ.';
+  if (speechDurationSec < 3.0) {
     qualityScore = 68;
-    qualityNote = 'Mẫu hơi ngắn (< 3s). Nên thu 5–10 giây để giữ âm sắc chính xác hơn.';
-  } else if (durationSec >= 4.5 && durationSec <= 12.0) {
-    qualityScore = 95;
-    qualityNote = 'Độ dài lý tưởng (5–12s), sạch nhiễu — độ tương đồng tối ưu.';
+    qualityNote = 'Mẫu hơi ngắn (< 3s). Nên thu 5–8 giây kết thúc trọn câu để F5-TTS đọc chuẩn nhất.';
+  } else if (speechDurationSec >= 4.5 && speechDurationSec <= 8.8) {
+    qualityScore = 96;
+    qualityNote = 'Độ dài vàng (5–9s) cho F5-TTS Việt — đã đệm khoảng lặng sạch chống dính từ đầu câu.';
   }
 
-  const wavBlob = encodeWavPcm16(pcm, sr);
-  return { wavBlob, durationSec, qualityScore, qualityNote, pitchHz, waveformPeaks };
+  const wavBlob = encodeWavPcm16(paddedPcm, sr);
+  return {
+    wavBlob,
+    durationSec: speechDurationSec,
+    qualityScore,
+    qualityNote,
+    pitchHz,
+    waveformPeaks,
+  };
 }
 
 function formatSrtTime(sec: number): string {
@@ -441,7 +572,6 @@ export async function stitchAudioChunks(
       .fill(0)
       .map((_, i) => 0.25 + 0.55 * Math.abs(Math.sin(i * 0.35)));
 
-    // Compute exact waveform peaks & true duration if <= 20 MB (~55 min)
     if (merged.length <= 20 * 1024 * 1024) {
       try {
         const pcm = await decodeToMono24k(merged.buffer.slice(0));
@@ -463,13 +593,17 @@ export async function stitchAudioChunks(
     };
   }
 
-  // High-precision PCM WAV stitcher (for Voice Cloning, WAV export, and mixed Dialogue)
+  // High-precision PCM WAV stitcher (for F5-TTS Việt Voice Cloning, WAV export, and mixed Dialogue)
   const sr = 24000;
   const decodedList: Float32Array[] = [];
   for (const c of chunks) {
-    const pcm = await decodeToMono24k(c.bytes.buffer.slice(c.bytes.byteOffset, c.bytes.byteOffset + c.bytes.byteLength));
-    // Gentle 12ms cosine fade-in / fade-out to prevent inter-chunk clicks
-    const fadeSamples = Math.min(Math.floor(sr * 0.012), Math.floor(pcm.length / 4));
+    let pcm = await decodeToMono24k(
+      c.bytes.buffer.slice(c.bytes.byteOffset, c.bytes.byteOffset + c.bytes.byteLength)
+    );
+    // Trim dead leading/trailing silence on each F5-TTS chunk so rhythm matches pause_ms cleanly
+    pcm = trimEdgeSilence(pcm, sr, 0.008, 0.045, 0.065);
+    // Gentle 15ms cosine fade-in / fade-out to prevent clicks/pops at boundaries
+    const fadeSamples = Math.min(Math.floor(sr * 0.015), Math.floor(pcm.length / 4));
     for (let i = 0; i < fadeSamples; i++) {
       const gain = 0.5 * (1 - Math.cos((Math.PI * i) / fadeSamples));
       pcm[i] *= gain;

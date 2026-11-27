@@ -22,7 +22,7 @@ interface VoiceVaultProps {
 }
 
 const CALIBRATION_SCRIPTS = [
-  'Xin chào, hôm nay trời thật đẹp và trong lành. Đây là giọng nói tự nhiên của tôi được thu âm để nhân bản trên phòng thu VoxForge.',
+  'Xin chào, hôm nay trời thật đẹp và trong lành. Đây là giọng nói tự nhiên của tôi được thu âm rõ ràng để nhân bản.',
   'Giữa nhịp sống hiện đại, một giọng nói ấm áp và rõ ràng luôn tạo ra cảm giác gần gũi và tin cậy cho người nghe.',
   'Khi đọc với tốc độ vừa phải ở nơi yên tĩnh, hệ thống sẽ ghi nhận chính xác âm sắc và nhịp điệu giọng nói của bạn.',
 ];
@@ -311,18 +311,18 @@ export const VoiceVault: React.FC<VoiceVaultProps> = ({
                 <div className="w-full max-w-[260px] text-center space-y-2">
                   <div className="font-mono-tech text-[15px] font-semibold text-[#111315]">
                     {recordSeconds.toFixed(1)}s{' '}
-                    <span className="text-[12px] font-normal text-[#8C929D]">/ 5–12s chuẩn</span>
+                    <span className="text-[12px] font-normal text-[#8C929D]">/ 5–9s chuẩn F5-TTS</span>
                   </div>
                   <div className="w-full h-1.5 rounded-full bg-[#E5E7EB] overflow-hidden">
                     <div
                       className={`h-full transition-all duration-100 ${
-                        recordSeconds >= 4 && recordSeconds <= 15
+                        recordSeconds >= 4.5 && recordSeconds <= 9.5
                           ? 'bg-[#15803D]'
-                          : recordSeconds > 15
+                          : recordSeconds > 9.5
                             ? 'bg-[#D97706]'
                             : 'bg-[#111315]'
                       }`}
-                      style={{ width: `${Math.min(100, (recordSeconds / 15) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (recordSeconds / 10) * 100)}%` }}
                     />
                   </div>
                   <p className="text-[12px] text-[#717784]">

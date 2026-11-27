@@ -1,6 +1,7 @@
 import {
   base64ToUint8,
   blobToBase64,
+  ensureF5OptimalReference,
   preprocessReferenceAudio,
   smartChunkText,
   stitchAudioChunks,
@@ -148,17 +149,16 @@ async function fetchEdgeChunkWithRetry(
 
 async function fetchCloneChunkWithRetry(
   args: {
-    engine: string;
     text: string;
-    ref_audio_base64: string;
+    ref_audio_base64?: string;
     ref_filename: string;
     ref_mime_type: string;
-    ref_text: string;
+    uploaded_ref_path?: string;
     speed: number;
-    quality_mode: 'turbo' | 'balanced' | 'high';
+    normalize_vietnamese?: boolean;
   },
   signal: AbortSignal
-): Promise<{ bytes: Uint8Array; mimeType: string }> {
+): Promise<{ bytes: Uint8Array; mimeType: string; uploadedRefPath?: string }> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal.aborted) throw new Error('Đã hủy tiến trình.');
@@ -166,6 +166,7 @@ async function fetchCloneChunkWithRetry(
       const data = await apiFetch<{
         audio_base64: string;
         mime_type: string;
+        uploaded_ref_path?: string;
       }>('/api/tts/clone-chunk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,6 +176,7 @@ async function fetchCloneChunkWithRetry(
       return {
         bytes: base64ToUint8(data.audio_base64),
         mimeType: data.mime_type || 'audio/wav',
+        uploadedRefPath: data.uploaded_ref_path,
       };
     } catch (err) {
       if (signal.aborted) throw new Error('Đã hủy tiến trình.');
@@ -184,23 +186,16 @@ async function fetchCloneChunkWithRetry(
       }
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error('Lỗi kết nối GPU Clone trên Worker.');
+  throw lastErr instanceof Error ? lastErr : new Error('Lỗi kết nối F5-TTS Việt GPU trên Worker.');
 }
 
 async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord> {
   const isClone = Boolean(payload.cloned_voice_id);
-  let effectiveEngine = payload.engine;
-  if (isClone && !['zipvoice_gpu', 'f5_gpu', 'vieneu_gpu'].includes(effectiveEngine)) {
-    effectiveEngine = 'zipvoice_gpu';
-  }
-  if (!isClone && effectiveEngine !== 'edge') {
-    effectiveEngine = 'edge';
-  }
+  const effectiveEngine = isClone ? 'f5_gpu' : 'edge';
 
   let refAudioB64 = '';
   let refFilename = 'ref.wav';
   let refMime = 'audio/wav';
-  let refText = '';
   let voiceLabel = payload.voice_id;
 
   if (isClone && payload.cloned_voice_id) {
@@ -208,21 +203,14 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
     if (!row) {
       throw new Error('Không tìm thấy giọng Clone trong trình duyệt. Hãy tạo lại trong Kho giọng Clone.');
     }
-    refAudioB64 = await blobToBase64(row.audioBlob);
+    const optimalBlob = await ensureF5OptimalReference(row.audioBlob);
+    refAudioB64 = await blobToBase64(optimalBlob);
     refFilename = row.profile.audio_filename || 'ref.wav';
-    refMime = row.audioBlob.type || 'audio/wav';
-    refText = row.profile.ref_text || '';
+    refMime = optimalBlob.type || 'audio/wav';
     voiceLabel = row.profile.name;
   }
 
-  const maxChars =
-    effectiveEngine === 'edge'
-      ? 1000
-      : effectiveEngine === 'zipvoice_gpu'
-        ? 260
-        : effectiveEngine === 'f5_gpu'
-          ? 300
-          : 420;
+  const maxChars = effectiveEngine === 'edge' ? 1000 : 135;
 
   const textChunks = smartChunkText(payload.text, maxChars);
   if (textChunks.length === 0) {
@@ -275,6 +263,7 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
     try {
       const results: Array<DecodedChunkAudio | null> = new Array(textChunks.length).fill(null);
       let completedCount = 0;
+      let cachedUploadedRefPath: string | undefined;
 
       const processChunk = async (idx: number) => {
         if (controller.signal.aborted) return;
@@ -304,17 +293,19 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
         } else {
           const out = await fetchCloneChunkWithRetry(
             {
-              engine: effectiveEngine,
               text: textChunks[idx],
               ref_audio_base64: refAudioB64,
               ref_filename: refFilename,
               ref_mime_type: refMime,
-              ref_text: refText,
+              uploaded_ref_path: cachedUploadedRefPath,
               speed: payload.speed,
-              quality_mode: payload.quality_mode || 'turbo',
+              normalize_vietnamese: true,
             },
             controller.signal
           );
+          if (out.uploadedRefPath) {
+            cachedUploadedRefPath = out.uploadedRefPath;
+          }
           results[idx] = {
             bytes: out.bytes,
             mimeType: out.mimeType,
@@ -437,7 +428,10 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
 
   void (async () => {
     try {
-      const voiceCache = new Map<string, { b64: string; filename: string; mime: string; refText: string }>();
+      const voiceCache = new Map<
+        string,
+        { b64: string; filename: string; mime: string; uploadedPath?: string }
+      >();
       const decodedChunks: DecodedChunkAudio[] = [];
 
       for (let i = 0; i < validLines.length; i++) {
@@ -451,39 +445,39 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
           if (!cached) {
             const row = await localVault.getVoiceRow(ln.cloned_voice_id);
             if (!row) throw new Error(`Không tìm thấy giọng Clone cho nhân vật "${ln.speaker}".`);
+            const optimalBlob = await ensureF5OptimalReference(row.audioBlob);
             cached = {
-              b64: await blobToBase64(row.audioBlob),
+              b64: await blobToBase64(optimalBlob),
               filename: row.profile.audio_filename || 'ref.wav',
-              mime: row.audioBlob.type || 'audio/wav',
-              refText: row.profile.ref_text || '',
+              mime: optimalBlob.type || 'audio/wav',
             };
             voiceCache.set(ln.cloned_voice_id, cached);
           }
 
-          const cloneEngine = ['zipvoice_gpu', 'f5_gpu', 'vieneu_gpu'].includes(ln.engine)
-            ? ln.engine
-            : 'zipvoice_gpu';
-          const out = await fetchCloneChunkWithRetry(
-            {
-              engine: cloneEngine,
-              text: ln.text.trim(),
-              ref_audio_base64: cached.b64,
-              ref_filename: cached.filename,
-              ref_mime_type: cached.mime,
-              ref_text: cached.refText,
-              speed: ln.speed,
-              quality_mode: 'turbo',
-            },
-            controller.signal
-          );
-          decodedChunks.push({
-            bytes: out.bytes,
-            mimeType: out.mimeType,
-            text: ln.text.trim(),
-            speaker: ln.speaker,
-            durationSec: Math.max(1, ln.text.trim().length / 15),
-            pauseAfterMs: ln.pause_after_ms,
-          });
+          const subChunks = smartChunkText(ln.text.trim(), 135);
+          for (let sIdx = 0; sIdx < subChunks.length; sIdx++) {
+            const out = await fetchCloneChunkWithRetry(
+              {
+                text: subChunks[sIdx],
+                ref_audio_base64: cached.b64,
+                ref_filename: cached.filename,
+                ref_mime_type: cached.mime,
+                uploaded_ref_path: cached.uploadedPath,
+                speed: ln.speed,
+                normalize_vietnamese: true,
+              },
+              controller.signal
+            );
+            if (out.uploadedRefPath) cached.uploadedPath = out.uploadedRefPath;
+            decodedChunks.push({
+              bytes: out.bytes,
+              mimeType: out.mimeType,
+              text: subChunks[sIdx],
+              speaker: ln.speaker,
+              durationSec: Math.max(1, subChunks[sIdx].length / 15),
+              pauseAfterMs: sIdx === subChunks.length - 1 ? ln.pause_after_ms : 180,
+            });
+          }
         } else {
           const out = await fetchEdgeChunkWithRetry(
             {
