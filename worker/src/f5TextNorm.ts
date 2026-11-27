@@ -164,10 +164,43 @@ export function normalizeVietnameseForF5(raw: string): string {
     .replace(/[,;:\s]+$/, '')
     .trim();
 
-  // Ensure every chunk finishes with clean terminal punctuation so F5-TTS closes prosody cleanly
-  if (text && !/[.!?]$/.test(text)) {
-    text += '.';
+  if (!text) return '';
+
+  // Ensure no single sentence exceeds ~125 chars without a period so F5-TTS's
+  // internal infer_process() splitter cleanly segments every ~115 chars without word skipping.
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const safeSentences: string[] = [];
+  for (const sent of sentences) {
+    if (sent.length <= 130) {
+      safeSentences.push(/[.!?]$/.test(sent) ? sent : `${sent}.`);
+      continue;
+    }
+    const clauses = sent
+      .split(/(?<=,)\s+/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    let buf = '';
+    for (const clause of clauses) {
+      if (!buf) {
+        buf = clause;
+      } else if (buf.length + 1 + clause.length <= 125) {
+        buf += ' ' + clause;
+      } else {
+        const cleanBuf = buf.replace(/[,;:\s]+$/, '');
+        if (cleanBuf) safeSentences.push(/[.!?]$/.test(cleanBuf) ? cleanBuf : `${cleanBuf}.`);
+        buf = clause;
+      }
+    }
+    if (buf) {
+      const cleanBuf = buf.replace(/[,;:\s]+$/, '');
+      if (cleanBuf) safeSentences.push(/[.!?]$/.test(cleanBuf) ? cleanBuf : `${cleanBuf}.`);
+    }
   }
 
-  return text;
+  return safeSentences.join(' ');
 }

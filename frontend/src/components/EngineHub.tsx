@@ -230,7 +230,7 @@ export const EngineHub: React.FC<EngineHubProps> = ({
         </div>
         <p className="text-xs text-[#717784] leading-relaxed">
           {runtime === 'cloudflare-hono'
-            ? 'Trên Cloudflare Workers (Hono.js), giọng Clone chạy trên NVIDIA A10G GPU Cloud. Dán mã Hugging Face Token (Read) miễn phí từ huggingface.co/settings/tokens để tránh hết lượt GPU chung (token lưu ngay trên trình duyệt của bạn, hoặc cấu hình sẵn qua biến mật HF_TOKEN trên Cloudflare).'
+            ? 'Trên Cloudflare Workers (Hono.js), F5-TTS Việt 6000h chạy trên NVIDIA ZeroGPU và gộp tới 1.000 ký tự mỗi lượt gọi để tiết kiệm 8× hạn mức. Dán 1 hoặc nhiều Hugging Face Token (Read) miễn phí từ huggingface.co/settings/tokens (cách nhau bằng dấu phẩy) để hệ thống tự động xoay vòng khi hết lượt.'
             : 'ViZipVoice 7000h đã chạy 100% offline trên máy bạn. Nếu muốn tăng tốc lên 2–4 giây/đoạn bằng NVIDIA A10G GPU miễn phí, dán mã token (Read) từ huggingface.co/settings/tokens vào đây.'}
         </p>
         <div className="flex items-center gap-2">
@@ -238,7 +238,7 @@ export const EngineHub: React.FC<EngineHubProps> = ({
             type="password"
             value={hfTokenInput}
             onChange={(e) => setHfTokenInput(e.target.value)}
-            placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            placeholder="hf_xxx1, hf_xxx2 (1 hoặc nhiều token cách nhau dấu phẩy)"
             className="flex-1 px-3 py-2 rounded-lg bg-white border border-[#DCDFE4] text-xs font-mono-tech text-[#111315] placeholder-[#9CA3AF] focus:outline-none focus:border-[#111315]"
           />
           <button

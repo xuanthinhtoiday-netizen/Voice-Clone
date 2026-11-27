@@ -190,7 +190,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     const words = trimmed ? trimmed.split(/\s+/).length : 0;
     const chunkSize =
       engine === 'f5_gpu'
-        ? 135
+        ? 1000
         : engine === 'vizipvoice'
           ? 160
           : engine === 'vieneu'
@@ -458,6 +458,17 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       Hủy
                     </button>
                   )}
+                  {activeJob.status === 'error' &&
+                    activeJob.error &&
+                    (activeJob.error.toLowerCase().includes('zerogpu') ||
+                      activeJob.error.toLowerCase().includes('token')) && (
+                      <button
+                        onClick={onGoToEngines}
+                        className="px-2.5 py-1 rounded-md btn-primary text-xs font-medium cursor-pointer"
+                      >
+                        Thêm HF Token
+                      </button>
+                    )}
                   {activeJob.status === 'completed' && activeJob.audio_url && (
                     <button
                       onClick={() => onPlayTrack(activeJob)}

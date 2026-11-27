@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { fetchEdgeVoices, synthesizeEdgeChunk } from './edgeTts';
-import { synthesizeF5VietnameseChunk } from './gradioClone';
+import { parseHfTokens, synthesizeF5VietnameseChunk } from './gradioClone';
 
 export interface Env {
   ASSETS: Fetcher;
@@ -60,10 +60,10 @@ app.get('/api/engines', (c) => {
         supports_cloning: true,
         supports_blending: false,
         supports_subtitles: true,
-        max_chunk_chars: 135,
+        max_chunk_chars: 1000,
         badge: hasToken ? '6000h Việt · A10G GPU' : '6000h Việt · Nên thêm HF Token',
         description:
-          'Bộ máy nhân bản giọng tiếng Việt Flow-Matching 6.000 giờ chuyên sâu: tự động căn mẫu giọng 5–9 giây, chuẩn hóa chữ số/từ tiếng Anh, chia đoạn ngắn chống nuốt chữ và giữ trọn âm sắc gốc.',
+          'Bộ máy nhân bản giọng tiếng Việt Flow-Matching 6.000 giờ chuyên sâu: gộp tới 1.000 ký tự/lượt GPU (tiết kiệm 8× hạn mức ZeroGPU), tự ngắt câu ~115 ký tự chống nuốt chữ, chuẩn hóa chữ số/từ tiếng Anh và xoay vòng nhiều HF Token.',
       },
       {
         id: 'edge',
@@ -194,7 +194,7 @@ app.post('/api/tts/clone-chunk', async (c) => {
       return c.json({ detail: 'Thiếu dữ liệu giọng mẫu.' }, 400);
     }
 
-    const hfToken = c.req.header('x-hf-token')?.trim() || c.env.HF_TOKEN;
+    const hfTokens = parseHfTokens(c.req.header('x-hf-token'), c.env.HF_TOKEN);
     const refBytes = body.ref_audio_base64 ? base64ToUint8(body.ref_audio_base64) : undefined;
 
     const out = await synthesizeF5VietnameseChunk({
@@ -205,7 +205,7 @@ app.post('/api/tts/clone-chunk', async (c) => {
       uploadedRefPath: body.uploaded_ref_path,
       speed: body.speed ?? 1.0,
       normalizeVietnamese: body.normalize_vietnamese !== false,
-      hfToken,
+      hfTokens,
     });
 
     return c.json({

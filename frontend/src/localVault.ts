@@ -96,9 +96,13 @@ export function getLocalHfToken(): string {
 
 export function setLocalHfToken(token: string): void {
   try {
-    const clean = token.trim();
-    if (clean) {
-      window.localStorage.setItem(HF_TOKEN_KEY, clean);
+    // Normalize whitespace/newlines to comma-separated list so X-HF-Token is always valid HTTP header
+    const tokens = token
+      .split(/[\s,;]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length > 0) {
+      window.localStorage.setItem(HF_TOKEN_KEY, tokens.join(','));
     } else {
       window.localStorage.removeItem(HF_TOKEN_KEY);
     }
@@ -108,9 +112,14 @@ export function setLocalHfToken(token: string): void {
 }
 
 export function maskToken(token: string): string {
-  if (!token) return '';
-  if (token.length <= 10) return `${token.slice(0, 3)}***`;
-  return `${token.slice(0, 6)}...${token.slice(-4)}`;
+  const list = token
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (list.length === 0) return '';
+  const first = list[0];
+  const maskedFirst = first.length <= 10 ? `${first.slice(0, 3)}***` : `${first.slice(0, 6)}...${first.slice(-4)}`;
+  return list.length > 1 ? `${list.length} tokens (${maskedFirst}, ...)` : maskedFirst;
 }
 
 export const localVault = {

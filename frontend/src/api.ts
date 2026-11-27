@@ -181,6 +181,10 @@ async function fetchCloneChunkWithRetry(
     } catch (err) {
       if (signal.aborted) throw new Error('Đã hủy tiến trình.');
       lastErr = err;
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.toLowerCase().includes('zerogpu') || msg.toLowerCase().includes('hạn mức')) {
+        throw err;
+      }
       if (attempt === 0) {
         await new Promise((r) => setTimeout(r, 900));
       }
@@ -210,7 +214,8 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
     voiceLabel = row.profile.name;
   }
 
-  const maxChars = effectiveEngine === 'edge' ? 1000 : 135;
+  // Batch up to 1000 chars per GPU call (F5-TTS worker auto-segments every ~115 chars inside 1 GPU run!)
+  const maxChars = 1000;
 
   const textChunks = smartChunkText(payload.text, maxChars);
   if (textChunks.length === 0) {
@@ -454,7 +459,7 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
             voiceCache.set(ln.cloned_voice_id, cached);
           }
 
-          const subChunks = smartChunkText(ln.text.trim(), 135);
+          const subChunks = smartChunkText(ln.text.trim(), 1000);
           for (let sIdx = 0; sIdx < subChunks.length; sIdx++) {
             const out = await fetchCloneChunkWithRetry(
               {
