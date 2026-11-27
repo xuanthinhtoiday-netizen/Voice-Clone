@@ -1,4 +1,12 @@
-export type EngineId = 'edge' | 'vizipvoice' | 'zipvoice_gpu' | 'f5_gpu' | 'vieneu' | 'kokoro' | 'hybrid_clone';
+export type EngineId =
+  | 'edge'
+  | 'vizipvoice'
+  | 'zipvoice_gpu'
+  | 'f5_gpu'
+  | 'vieneu_gpu'
+  | 'vieneu'
+  | 'kokoro'
+  | 'hybrid_clone';
 
 export interface StockVoiceInfo {
   id: string;

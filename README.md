@@ -20,7 +20,34 @@ Phòng thu chuyển văn bản thành giọng nói **không giới hạn ký t�
 - **Trình phát Mastering Dock**: Sóng âm tương tác tua nhanh, phát nguyên bản 100% khi không bật EQ, và ngăn kéo **EQ / Reverb / Âm nền** bằng Web Audio API + tải nhanh **MP3 / WAV / SRT**.
 - **Giao diện phòng thu tối giản**: Thiết kế split-pane sáng, sạch, tập trung vào thao tác biên tập với font **Be Vietnam Pro** & **IBM Plex Mono**.
 
-## Cài đặt & Khởi chạy
+## Triển khai trọn bộ lên Cloudflare Workers (Hono.js + React)
+
+Toàn bộ giao diện React (`frontend/dist`) và **AI Backend viết bằng Hono.js** (`worker/src/index.ts`) được đóng gói qua `wrangler.jsonc` (**Workers Static Assets**):
+- **Edge Neural TTS (300+ giọng, không giới hạn ký tự & phụ đề SRT)**: Chạy trực tiếp trên Cloudflare Workers qua WebSocket (`worker/src/edgeDrm.ts`, `worker/src/edgeTts.ts`) — không cần server Python.
+- **Zero-Shot Voice Cloning (`ZipVoice GPU`, `F5-TTS Việt`, `VieNeu v3 Turbo 48kHz`)**: Chạy từ Hono.js Worker gọi tới NVIDIA A10G GPU Cloud (`worker/src/gradioClone.ts`).
+- **Kho giọng Clone & Thư viện âm thanh**: Lưu ngay trong **IndexedDB** của trình duyệt (không cần cài D1/R2 trả phí).
+
+### Cách 1: Đẩy trực tiếp từ GitHub trên Cloudflare Dashboard
+1. Vào **Cloudflare Dashboard → Compute (Workers & Pages) → Create → Workers → Import a repository** (chọn tab **Workers**, không chọn Pages).
+2. Chọn repository **`Voice-Clone`** (nhánh `main`).
+3. Điền cấu hình:
+   - **Build command**: `npm run build`
+   - **Deploy command**: `npx wrangler deploy`
+   - **Root directory**: để trống (`/`)
+   - *(Tùy chọn)* Thêm **Environment variable / Secret**: `HF_TOKEN` (Read token miễn phí từ `huggingface.co/settings/tokens`) để tăng quota GPU Clone cho toàn bộ người dùng, hoặc mỗi người có thể dán trực tiếp trong mục **Mô hình AI** trên web.
+4. Nhấn **Save and Deploy**.
+
+### Cách 2: Chạy thử & Deploy bằng CLI
+```bash
+npm install
+npm run build
+npm run dev       # Chạy thử cục bộ tại http://127.0.0.1:8787
+npm run deploy    # Deploy thẳng lên Cloudflare Workers
+```
+
+---
+
+## Cài đặt & Khởi chạy cục bộ (Python Offline CPU)
 
 ### 1. Cài đặt Backend (Python 3.11)
 ```bash

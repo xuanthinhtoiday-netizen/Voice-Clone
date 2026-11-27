@@ -5,11 +5,13 @@ import type {
   DialogueLine,
   DialoguePayload,
   EngineId,
+  EngineStatus,
   JobRecord,
   StockVoiceInfo,
 } from '../types';
 
 interface DialogueDirectorProps {
+  engines: EngineStatus[];
   stockVoicesByEngine: Record<string, StockVoiceInfo[]>;
   clonedVoices: ClonedVoiceProfile[];
   activeJob: JobRecord | null;
@@ -87,6 +89,7 @@ const TEMPLATES: { name: string; title: string; lines: Omit<DialogueLine, 'id'>[
 ];
 
 export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
+  engines,
   stockVoicesByEngine,
   clonedVoices,
   activeJob,
@@ -160,6 +163,10 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
 
   const edgeVoices = stockVoicesByEngine['edge'] || [];
   const vieneuVoices = stockVoicesByEngine['vieneu'] || [];
+  const hasLocalViZip = engines.some((e) => e.id === 'vizipvoice');
+  const hasLocalVieNeu = engines.some((e) => e.id === 'vieneu');
+  const hasCloudF5 = engines.some((e) => e.id === 'f5_gpu');
+  const hasCloudVieNeu = engines.some((e) => e.id === 'vieneu_gpu');
 
   return (
     <div className="max-w-4xl mx-auto px-6 lg:px-10 py-8 pb-32 space-y-6">
@@ -296,7 +303,7 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
                   }}
                   className="flex-1 min-w-[210px] px-2.5 py-1.5 rounded-lg bg-white border border-[#DCDFE4] text-xs text-[#111315] focus:outline-none focus:border-[#111315]"
                 >
-                  {clonedVoices.length > 0 && (
+                  {clonedVoices.length > 0 && hasLocalViZip && (
                     <optgroup label="Giọng Clone (ViZipVoice 7000h — Giống thật 99% Offline)">
                       {clonedVoices.map((cv) => (
                         <option key={`vz_${cv.id}`} value={`cloned::vizipvoice::${cv.id}`}>
@@ -306,7 +313,7 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
                     </optgroup>
                   )}
                   {clonedVoices.length > 0 && (
-                    <optgroup label="Giọng Clone (ZipVoice GPU Cloud)">
+                    <optgroup label="Giọng Clone (ZipVoice GPU Cloud — Giống 99%)">
                       {clonedVoices.map((cv) => (
                         <option key={`vzg_${cv.id}`} value={`cloned::zipvoice_gpu::${cv.id}`}>
                           Clone GPU · {cv.name}
@@ -314,7 +321,25 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
                       ))}
                     </optgroup>
                   )}
-                  {clonedVoices.length > 0 && (
+                  {clonedVoices.length > 0 && hasCloudF5 && (
+                    <optgroup label="Giọng Clone (F5-TTS Việt GPU Cloud)">
+                      {clonedVoices.map((cv) => (
+                        <option key={`f5g_${cv.id}`} value={`cloned::f5_gpu::${cv.id}`}>
+                          F5-TTS · {cv.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {clonedVoices.length > 0 && hasCloudVieNeu && (
+                    <optgroup label="Giọng Clone (VieNeu v3 Turbo 48kHz GPU)">
+                      {clonedVoices.map((cv) => (
+                        <option key={`vng_${cv.id}`} value={`cloned::vieneu_gpu::${cv.id}`}>
+                          VieNeu 48kHz · {cv.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {clonedVoices.length > 0 && hasLocalVieNeu && (
                     <optgroup label="Giọng Clone Nhanh (VieNeu Nano CPU)">
                       {clonedVoices.map((cv) => (
                         <option key={`vn_${cv.id}`} value={`cloned::vieneu::${cv.id}`}>
@@ -330,13 +355,15 @@ export const DialogueDirector: React.FC<DialogueDirectorProps> = ({
                       </option>
                     ))}
                   </optgroup>
-                  <optgroup label="Giọng VieNeu tiếng Việt (Offline)">
-                    {vieneuVoices.map((v) => (
-                      <option key={`vnst_${v.id}`} value={`stock::vieneu::${v.id}`}>
-                        VieNeu · {v.name}
-                      </option>
-                    ))}
-                  </optgroup>
+                  {vieneuVoices.length > 0 && (
+                    <optgroup label="Giọng VieNeu tiếng Việt (Offline)">
+                      {vieneuVoices.map((v) => (
+                        <option key={`vnst_${v.id}`} value={`stock::vieneu::${v.id}`}>
+                          VieNeu · {v.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
 
                 <div className="flex items-center gap-1.5 text-xs text-[#717784] font-mono-tech">

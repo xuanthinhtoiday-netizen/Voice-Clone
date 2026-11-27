@@ -107,14 +107,55 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const availableCloneOptions = useMemo(() => {
+    const hasLocal = engines.some((e) => e.id === 'vizipvoice');
+    if (hasLocal) {
+      return [
+        { id: 'vizipvoice' as EngineId, label: 'ViZipVoice', sub: 'Giống 99% · Offline' },
+        { id: 'zipvoice_gpu' as EngineId, label: 'ZipVoice GPU', sub: 'Giống 99% · Nhanh' },
+        { id: 'vieneu' as EngineId, label: 'VieNeu Nano', sub: 'Nhanh nhất · CPU' },
+      ];
+    }
+    return [
+      { id: 'zipvoice_gpu' as EngineId, label: 'ZipVoice GPU', sub: 'Giống 99% · A10G' },
+      { id: 'f5_gpu' as EngineId, label: 'F5-TTS Việt', sub: 'Flow-Matching' },
+      { id: 'vieneu_gpu' as EngineId, label: 'VieNeu 48kHz', sub: 'Studio GPU' },
+    ];
+  }, [engines]);
+
+  const availableStockOptions = useMemo(() => {
+    const hasLocalStock = engines.some((e) => e.id === 'vieneu' || e.id === 'kokoro');
+    if (hasLocalStock) {
+      return [
+        { id: 'edge' as EngineId, label: 'Edge Neural', sub: '300+ giọng' },
+        { id: 'vieneu' as EngineId, label: 'VieNeu VN', sub: 'Offline CPU' },
+        { id: 'kokoro' as EngineId, label: 'Kokoro 82M', sub: 'Trộn giọng' },
+      ];
+    }
+    return [{ id: 'edge' as EngineId, label: 'Edge Neural Cloud', sub: '300+ giọng · Hono.js Worker' }];
+  }, [engines]);
+
+  const defaultCloneEngine = availableCloneOptions[0]?.id || 'zipvoice_gpu';
+
   React.useEffect(() => {
     if (selectedClonedId) {
       setVoiceMode('cloned');
-      if (engine !== 'vizipvoice' && engine !== 'zipvoice_gpu' && engine !== 'f5_gpu' && engine !== 'vieneu') {
-        setEngine('vizipvoice');
+      const validCloneIds = availableCloneOptions.map((o) => o.id);
+      if (!validCloneIds.includes(engine)) {
+        setEngine(defaultCloneEngine);
       }
     }
-  }, [selectedClonedId]);
+  }, [selectedClonedId, availableCloneOptions, defaultCloneEngine]);
+
+  React.useEffect(() => {
+    if (voiceMode === 'cloned') {
+      const validCloneIds = availableCloneOptions.map((o) => o.id);
+      if (!validCloneIds.includes(engine)) setEngine(defaultCloneEngine);
+    } else {
+      const validStockIds = availableStockOptions.map((o) => o.id);
+      if (!validStockIds.includes(engine)) setEngine('edge');
+    }
+  }, [engines, voiceMode, availableCloneOptions, availableStockOptions, defaultCloneEngine]);
 
   const isRunning =
     activeJob &&
@@ -213,13 +254,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     setLocalError(null);
     setSubmitting(true);
     try {
+      const validCloneIds = availableCloneOptions.map((o) => o.id);
       const effectiveEngine: EngineId =
-        voiceMode === 'cloned' &&
-        engine !== 'vizipvoice' &&
-        engine !== 'zipvoice_gpu' &&
-        engine !== 'f5_gpu' &&
-        engine !== 'vieneu'
-          ? 'vizipvoice'
+        voiceMode === 'cloned' && !validCloneIds.includes(engine)
+          ? defaultCloneEngine
           : engine;
 
       const payload: SynthesizePayload = {
@@ -502,6 +540,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                   engine === 'vizipvoice' ||
                   engine === 'zipvoice_gpu' ||
                   engine === 'f5_gpu' ||
+                  engine === 'vieneu_gpu' ||
                   engine === 'hybrid_clone'
                 ) {
                   setEngine('edge');
@@ -518,13 +557,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             <button
               onClick={() => {
                 setVoiceMode('cloned');
-                if (
-                  engine !== 'vizipvoice' &&
-                  engine !== 'zipvoice_gpu' &&
-                  engine !== 'f5_gpu' &&
-                  engine !== 'vieneu'
-                ) {
-                  setEngine('vizipvoice');
+                const validCloneIds = availableCloneOptions.map((o) => o.id);
+                if (!validCloneIds.includes(engine)) {
+                  setEngine(defaultCloneEngine);
                 }
                 if (!selectedClonedId && clonedVoices[0]) onSelectClonedId(clonedVoices[0].id);
               }}
@@ -548,11 +583,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </label>
             {voiceMode === 'cloned' ? (
               <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { id: 'vizipvoice' as EngineId, label: 'ViZipVoice', sub: 'Giống 99% · Offline' },
-                  { id: 'zipvoice_gpu' as EngineId, label: 'ZipVoice GPU', sub: 'Giống 99% · Nhanh' },
-                  { id: 'vieneu' as EngineId, label: 'VieNeu Nano', sub: 'Nhanh nhất · CPU' },
-                ].map((opt) => (
+                {availableCloneOptions.map((opt) => (
                   <button
                     key={opt.id}
                     onClick={() => {
@@ -571,12 +602,12 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { id: 'edge' as EngineId, label: 'Edge Neural', sub: '300+ giọng' },
-                  { id: 'vieneu' as EngineId, label: 'VieNeu VN', sub: 'Offline CPU' },
-                  { id: 'kokoro' as EngineId, label: 'Kokoro 82M', sub: 'Trộn giọng' },
-                ].map((opt) => {
+              <div
+                className={`grid gap-1.5 ${
+                  availableStockOptions.length === 1 ? 'grid-cols-1' : 'grid-cols-3'
+                }`}
+              >
+                {availableStockOptions.map((opt) => {
                   const active = engine === opt.id;
                   return (
                     <button
@@ -791,7 +822,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
           {/* Sliders */}
           <div className="pt-4 border-t border-[#E5E7EB] space-y-4">
-            {(engine === 'vieneu' || engine === 'vizipvoice' || engine === 'zipvoice_gpu') && (
+            {(engine === 'vieneu' ||
+              engine === 'vizipvoice' ||
+              engine === 'zipvoice_gpu' ||
+              engine === 'f5_gpu') && (
               <div className="space-y-1.5">
                 <label className="block text-[12px] font-medium text-[#525866]">
                   Tốc độ xử lý AI

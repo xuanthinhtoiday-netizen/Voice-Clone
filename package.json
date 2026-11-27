@@ -1,0 +1,20 @@
+{
+  "name": "voxforge-studio-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "tsc -p worker/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261123.1",
+    "typescript": "~5.8.3",
+    "wrangler": "^4.14.0"
+  }
+}

@@ -213,6 +213,7 @@ export function App() {
 
         {activeTab === 'dialogue' && (
           <DialogueDirector
+            engines={engines}
             stockVoicesByEngine={stockVoicesByEngine}
             clonedVoices={clonedVoices}
             activeJob={activeJob}

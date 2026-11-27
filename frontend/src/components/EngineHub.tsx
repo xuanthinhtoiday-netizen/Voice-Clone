@@ -49,8 +49,13 @@ export const EngineHub: React.FC<EngineHubProps> = ({
     hf_token_masked: '',
   });
   const [savingToken, setSavingToken] = useState(false);
+  const [runtime, setRuntime] = useState<'cloudflare-hono' | 'python-local'>('python-local');
 
   useEffect(() => {
+    api
+      .getRuntime()
+      .then(setRuntime)
+      .catch(() => {});
     api
       .getSettings()
       .then(setHfStatus)
@@ -103,7 +108,9 @@ export const EngineHub: React.FC<EngineHubProps> = ({
           </p>
         </div>
         <span className="text-xs font-mono-tech text-[#5C626E]">
-          FFmpeg encoder: {ffmpegReady ? 'Sẵn sàng' : 'Chế độ WAV'}
+          {runtime === 'cloudflare-hono'
+            ? 'Backend: Cloudflare Workers · Hono.js'
+            : `FFmpeg encoder: ${ffmpegReady ? 'Sẵn sàng' : 'Chế độ WAV'}`}
         </span>
       </div>
 
@@ -214,11 +221,17 @@ export const EngineHub: React.FC<EngineHubProps> = ({
             </h2>
           </div>
           <span className="text-xs font-mono-tech text-[#5C626E]">
-            {hfStatus.has_hf_token ? `Đang dùng: ${hfStatus.hf_token_masked}` : 'Chưa cấu hình (chạy Offline CPU)'}
+            {hfStatus.has_hf_token
+              ? `Đang dùng: ${hfStatus.hf_token_masked}`
+              : runtime === 'cloudflare-hono'
+                ? 'Chưa cấu hình (dùng quota miễn phí)'
+                : 'Chưa cấu hình (chạy Offline CPU)'}
           </span>
         </div>
         <p className="text-xs text-[#717784] leading-relaxed">
-          ViZipVoice 7000h đã chạy 100% offline trên máy bạn. Nếu muốn tăng tốc lên 2–4 giây/đoạn bằng NVIDIA A10G GPU miễn phí, dán mã token (Read) từ huggingface.co/settings/tokens vào đây.
+          {runtime === 'cloudflare-hono'
+            ? 'Trên Cloudflare Workers (Hono.js), giọng Clone chạy trên NVIDIA A10G GPU Cloud. Dán mã Hugging Face Token (Read) miễn phí từ huggingface.co/settings/tokens để tránh hết lượt GPU chung (token lưu ngay trên trình duyệt của bạn, hoặc cấu hình sẵn qua biến mật HF_TOKEN trên Cloudflare).'
+            : 'ViZipVoice 7000h đã chạy 100% offline trên máy bạn. Nếu muốn tăng tốc lên 2–4 giây/đoạn bằng NVIDIA A10G GPU miễn phí, dán mã token (Read) từ huggingface.co/settings/tokens vào đây.'}
         </p>
         <div className="flex items-center gap-2">
           <input
