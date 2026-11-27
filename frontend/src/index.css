@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+    --canvas: #FAFAFA;
+    --surface: #FFFFFF;
+    --well: #F3F4F6;
+    --border: #E5E7EB;
+    --border-strong: #D1D5DB;
+    --ink: #111315;
+    --ink-muted: #5C626E;
+    --ink-subtle: #8C929D;
+    --signal-rec: #DC2626;
+    --signal-clone: #1D4ED8;
+    --signal-ok: #15803D;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  .font-mono-tech {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Tactile architectural surfaces — flat, crisp hairlines, zero neon */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.panel-subtle {
+  background: #F6F6F7;
+  border: 1px solid var(--border);
+}
+
+/* Primary tactile ink button (Braun / ElevenLabs / Linear discipline) */
+.btn-primary {
+  background-color: #111315;
+  color: #FFFFFF;
+  border: 1px solid #111315;
+  transition: background-color 140ms ease, transform 100ms ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #272B30;
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.btn-primary:disabled {
+  background-color: #D1D5DB;
+  border-color: #D1D5DB;
+  color: #6B7280;
+}
+
+/* Secondary architectural button */
+.btn-secondary {
+  background-color: #FFFFFF;
+  color: #111315;
+  border: 1px solid #DCDFE4;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #F4F5F7;
+  border-color: #C4C9D1;
+}
+
+/* Functional Clone accent button */
+.btn-clone {
+  background-color: #1D4ED8;
+  color: #FFFFFF;
+  border: 1px solid #1D4ED8;
+  transition: background-color 140ms ease, transform 100ms ease;
+}
+
+.btn-clone:hover:not(:disabled) {
+  background-color: #1E40AF;
+}
+
+/* Precision studio fader / range slider */
+input[type='range'].fader {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 999px;
+  background: #DCDFE4;
+  outline: none;
+}
+
+input[type='range'].fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #111315;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+input[type='range'].fader::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+
+input[type='range'].fader:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid #111315;
+  outline-offset: 2px;
+}
+
+/* Minimal scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D4D7DD;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+@keyframes rec-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(1.42);
+    opacity: 0;
+  }
+}
+
+.animate-rec-ripple {
+  animation: rec-ripple 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}

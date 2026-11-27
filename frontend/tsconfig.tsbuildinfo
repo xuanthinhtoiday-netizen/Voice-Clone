@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/components/audiomasteringdock.tsx","./src/components/dialoguedirector.tsx","./src/components/enginehub.tsx","./src/components/historylibrary.tsx","./src/components/sidebar.tsx","./src/components/studioworkspace.tsx","./src/components/voicevault.tsx"],"version":"5.8.3"}

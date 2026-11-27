@@ -1,0 +1,36 @@
+# Core Web & Async Server
+fastapi>=0.115.0
+uvicorn>=0.30.0
+python-multipart>=0.0.18
+aiofiles>=24.1.0
+httpx>=0.27.0
+
+# Audio Processing & Encoding
+numpy>=2.0.2
+scipy>=1.14.0
+soundfile>=0.12.1
+pydub>=0.25.1
+imageio-ffmpeg>=0.5.1
+
+# Multi-Engine TTS & Voice Cloning
+edge-tts>=7.0.0
+vieneu>=3.8.5
+kokoro-onnx>=0.6.0
+onnxruntime>=1.20.1
+gradio-client>=1.5.0
+huggingface-hub>=1.16.0,<3.0
+
+# ViZipVoice 7000h Flow-Matching & Auto-Transcription
+# Install torch/torchaudio CPU wheels via:
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+vocos>=0.1.0
+safetensors>=0.4.5
+lhotse>=1.28.0
+soe-vinorm>=0.3.2
+cn2an>=0.5.22
+inflect>=7.0.0
+jieba>=0.42.1
+pypinyin>=0.53.0
+faster-whisper>=1.1.0
+onnx>=1.17.0
+onnxscript>=0.2.0
