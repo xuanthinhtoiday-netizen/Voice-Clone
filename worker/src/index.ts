@@ -1,11 +1,17 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { fetchEdgeVoices, synthesizeEdgeChunk } from './edgeTts';
-import { parseHfTokens, synthesizeF5VietnameseChunk } from './gradioClone';
+import {
+  parseHfTokens,
+  synthesizeF5VietnameseChunk,
+  synthesizeViaCustomF5Server,
+  testCustomF5Server,
+} from './gradioClone';
 
 export interface Env {
   ASSETS: Fetcher;
   HF_TOKEN?: string;
+  F5_SERVER_URL?: string;
   AI?: {
     run: (model: string, inputs: Record<string, unknown>) => Promise<{ text?: string }>;
   };
@@ -40,6 +46,7 @@ app.get('/api/health', (c) => {
     runtime: 'cloudflare-hono',
     ffmpeg: false,
     has_server_hf_token: Boolean(c.env.HF_TOKEN),
+    has_server_f5_url: Boolean(c.env.F5_SERVER_URL),
     has_workers_ai: Boolean(c.env.AI),
   });
 });
@@ -47,23 +54,35 @@ app.get('/api/health', (c) => {
 app.get('/api/engines', (c) => {
   const headerToken = c.req.header('x-hf-token')?.trim();
   const hasToken = Boolean(headerToken || c.env.HF_TOKEN);
+  const customF5Url = c.req.header('x-f5-server-url')?.trim() || c.env.F5_SERVER_URL?.trim();
+  const hasCustomGpu = Boolean(customF5Url);
 
   return c.json({
     runtime: 'cloudflare-hono',
     ffmpeg_ready: true,
+    has_custom_f5_gpu: hasCustomGpu,
     engines: [
       {
         id: 'f5_gpu',
-        name: 'F5-TTS Việt 6000h (GPU Cloud)',
-        source_repo: 'SWivid/F5-TTS · hynt/F5-TTS-Vietnamese-ViVoice',
+        name: hasCustomGpu
+          ? 'F5-TTS Việt 6000h (Colab GPU Riêng)'
+          : 'F5-TTS Việt 6000h (GPU Cloud)',
+        source_repo: hasCustomGpu
+          ? 'Google Colab T4 · Cloudflare Tunnel'
+          : 'SWivid/F5-TTS · hynt/F5-TTS-Vietnamese-ViVoice',
         ready: true,
         supports_cloning: true,
         supports_blending: false,
         supports_subtitles: true,
-        max_chunk_chars: 1000,
-        badge: hasToken ? '6000h Việt · A10G GPU' : '6000h Việt · Nên thêm HF Token',
-        description:
-          'Bộ máy nhân bản giọng tiếng Việt Flow-Matching 6.000 giờ chuyên sâu: gộp tới 1.000 ký tự/lượt GPU (tiết kiệm 8× hạn mức ZeroGPU), tự ngắt câu ~115 ký tự chống nuốt chữ, chuẩn hóa chữ số/từ tiếng Anh và xoay vòng nhiều HF Token.',
+        max_chunk_chars: 2400,
+        badge: hasCustomGpu
+          ? 'GPU Riêng · Không giới hạn'
+          : hasToken
+            ? '6000h Việt · HF Token'
+            : 'Nên gắn Colab GPU miễn phí',
+        description: hasCustomGpu
+          ? 'Đang kết nối trực tiếp tới GPU Server F5-TTS Việt 6000h riêng (Google Colab / Kaggle). Không giới hạn ký tự, không bị giới hạn ZeroGPU, chỉ nhận diện giọng mẫu 1 lần cho cả cuốn truyện.'
+          : 'Bộ máy nhân bản giọng tiếng Việt Flow-Matching 6.000 giờ chuyên sâu: gộp tới 2.400 ký tự/lượt, tự ngắt câu chống nuốt chữ và chuẩn hóa chữ số/từ tiếng Anh. Gắn thêm Google Colab T4 miễn phí bên dưới để đọc không giới hạn.',
       },
       {
         id: 'edge',
@@ -89,10 +108,31 @@ app.get('/api/voices/stock', async (c) => {
 
 app.get('/api/settings', (c) => {
   const hasServerToken = Boolean(c.env.HF_TOKEN);
+  const hasServerF5Url = Boolean(c.env.F5_SERVER_URL);
   return c.json({
     has_hf_token: hasServerToken,
     hf_token_masked: hasServerToken ? 'Configured via Wrangler Secret' : '',
+    has_f5_server_url: hasServerF5Url,
+    f5_server_url: hasServerF5Url ? 'Configured via Worker Env' : '',
   });
+});
+
+app.post('/api/f5-server/test', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { url?: string };
+    const targetUrl =
+      body.url?.trim() || c.req.header('x-f5-server-url')?.trim() || c.env.F5_SERVER_URL?.trim();
+    if (!targetUrl) {
+      return c.json({ ok: false, error: 'Chưa nhập đường link GPU Server.' }, 400);
+    }
+    const result = await testCustomF5Server(targetUrl);
+    return c.json(result, result.ok ? 200 : 502);
+  } catch (err) {
+    return c.json(
+      { ok: false, error: err instanceof Error ? err.message : 'Lỗi kiểm tra kết nối GPU.' },
+      500
+    );
+  }
 });
 
 app.post('/api/text/extract', async (c) => {
@@ -182,18 +222,46 @@ app.post('/api/tts/clone-chunk', async (c) => {
       ref_audio_base64?: string;
       ref_filename?: string;
       ref_mime_type?: string;
+      ref_text?: string;
+      ref_hash?: string;
       uploaded_ref_path?: string;
       speed?: number;
+      nfe_step?: number;
       normalize_vietnamese?: boolean;
     };
 
     if (!body.text?.trim()) {
       return c.json({ detail: 'Văn bản trống.' }, 400);
     }
-    if (!body.ref_audio_base64 && !body.uploaded_ref_path) {
+    if (!body.ref_audio_base64 && !body.uploaded_ref_path && !body.ref_hash) {
       return c.json({ detail: 'Thiếu dữ liệu giọng mẫu.' }, 400);
     }
 
+    // Priority 1: Dedicated Google Colab / Kaggle / Self-hosted F5-TTS GPU Server (UNLIMITED!)
+    const customF5Url = c.req.header('x-f5-server-url')?.trim() || c.env.F5_SERVER_URL?.trim();
+    if (customF5Url) {
+      const out = await synthesizeViaCustomF5Server({
+        serverUrl: customF5Url,
+        text: body.text,
+        refAudioBase64: body.ref_audio_base64,
+        refHash: body.ref_hash,
+        refText: body.ref_text,
+        speed: body.speed ?? 1.0,
+        nfeStep: body.nfe_step ?? 32,
+        normalizeVietnamese: body.normalize_vietnamese !== false,
+      });
+
+      return c.json({
+        audio_base64: out.audioBase64,
+        mime_type: out.mimeType,
+        ref_hash: out.refHash,
+        duration_sec: out.durationSec,
+        gpu: out.gpu,
+        normalized_text: out.normalizedText,
+      });
+    }
+
+    // Priority 2: Public Hugging Face Space fallback with multi-token rotation
     const hfTokens = parseHfTokens(c.req.header('x-hf-token'), c.env.HF_TOKEN);
     const refBytes = body.ref_audio_base64 ? base64ToUint8(body.ref_audio_base64) : undefined;
 

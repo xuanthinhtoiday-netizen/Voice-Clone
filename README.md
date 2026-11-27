@@ -37,6 +37,13 @@ Toàn bộ giao diện React (`frontend/dist`) và **AI Backend viết bằng Ho
    - *(Tùy chọn)* Thêm **Environment variable / Secret**: `HF_TOKEN` (Read token miễn phí từ `huggingface.co/settings/tokens`) để tăng quota GPU Clone cho toàn bộ người dùng, hoặc mỗi người có thể dán trực tiếp trong mục **Mô hình AI** trên web.
 4. Nhấn **Save and Deploy**.
 
+### Chạy F5-TTS Việt 6000h KHÔNG GIỚI HẠN trên Google Colab / Kaggle T4 GPU (0 đồng)
+Nếu bạn muốn chuyển truyện dài 10.000 – 100.000+ ký tự không bao giờ bị giới hạn Hugging Face ZeroGPU:
+1. Mở trực tiếp Notebook 1-Click trên Google Colab:
+   **[Open in Google Colab — F5-TTS Việt 6000h Server](https://colab.research.google.com/github/xuanthinhtoiday-netizen/Voice-Clone/blob/main/colab/F5_TTS_Viet_6000h_Server.ipynb)**
+2. Chọn **Runtime → Change runtime type → T4 GPU → Save**, rồi bấm **Runtime → Run all**.
+3. Copy đường link `https://xxxx.trycloudflare.com` hiện ra ở ô số 2, dán vào mục **Mô hình AI → GPU Server riêng (Google Colab)** trên web VoxForge của bạn và bấm **Lưu & Kiểm tra GPU**.
+
 ### Cách 2: Chạy thử & Deploy bằng CLI
 ```bash
 npm install

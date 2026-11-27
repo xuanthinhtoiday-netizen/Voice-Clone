@@ -287,3 +287,138 @@ export async function synthesizeF5VietnameseChunk(params: {
     ? lastError
     : new Error('Lỗi tổng hợp âm thanh trên F5-TTS Việt GPU.');
 }
+
+function normalizeServerBaseUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/i.test(trimmed)) {
+    throw new Error('Link GPU Server không hợp lệ (cần bắt đầu bằng https:// hoặc http://).');
+  }
+  return trimmed;
+}
+
+export async function testCustomF5Server(rawUrl: string): Promise<{
+  ok: boolean;
+  gpu?: string;
+  model?: string;
+  cached_voices?: number;
+  error?: string;
+}> {
+  try {
+    const base = normalizeServerBaseUrl(rawUrl);
+    const res = await fetch(`${base}/health`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      return { ok: false, error: `Server trả về HTTP ${res.status}` };
+    }
+    const data = (await res.json()) as {
+      status?: string;
+      gpu?: string;
+      model?: string;
+      cached_voices?: number;
+    };
+    if (data?.status !== 'ok') {
+      return { ok: false, error: 'Phản hồi /health không hợp lệ.' };
+    }
+    return {
+      ok: true,
+      gpu: data.gpu || 'GPU',
+      model: data.model || 'F5-TTS-Vietnamese-6000h',
+      cached_voices: data.cached_voices ?? 0,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? `Không kết nối được tới Colab GPU Server: ${err.message}`
+          : 'Không kết nối được tới Colab GPU Server.',
+    };
+  }
+}
+
+export async function synthesizeViaCustomF5Server(params: {
+  serverUrl: string;
+  text: string;
+  refAudioBase64?: string;
+  refHash?: string;
+  refText?: string;
+  speed?: number;
+  nfeStep?: number;
+  normalizeVietnamese?: boolean;
+}): Promise<{
+  audioBase64: string;
+  mimeType: string;
+  refHash?: string;
+  durationSec?: number;
+  gpu?: string;
+  normalizedText: string;
+}> {
+  const base = normalizeServerBaseUrl(params.serverUrl);
+  const preparedText =
+    params.normalizeVietnamese === false
+      ? params.text.trim()
+      : normalizeVietnameseForF5(params.text);
+
+  if (!preparedText) {
+    throw new Error('Đoạn văn bản sau chuẩn hóa bị trống.');
+  }
+
+  const clampedSpeed = Math.max(0.5, Math.min(1.8, Number((params.speed ?? 1.0).toFixed(2))));
+
+  const postOnce = async (useHashOnly: boolean) => {
+    const payload: Record<string, unknown> = {
+      text: preparedText,
+      speed: clampedSpeed,
+      nfe_step: params.nfeStep ?? 32,
+      ref_text: params.refText || '',
+    };
+    if (useHashOnly && params.refHash) {
+      payload.ref_hash = params.refHash;
+    } else if (params.refAudioBase64) {
+      payload.ref_audio_base64 = params.refAudioBase64;
+      if (params.refHash) payload.ref_hash = params.refHash;
+    }
+
+    return fetch(`${base}/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  };
+
+  let res = await postOnce(Boolean(params.refHash && !params.refAudioBase64));
+
+  // If cached voice hash expired on Colab restart, automatically re-send audio bytes once
+  if (res.status === 404 && params.refAudioBase64) {
+    res = await postOnce(false);
+  }
+
+  if (!res.ok) {
+    const errTxt = await res.text().catch(() => '');
+    throw new Error(
+      `Colab GPU Server báo lỗi (${res.status}). Hãy kiểm tra tab Google Colab còn đang chạy không. ${errTxt.slice(0, 160)}`
+    );
+  }
+
+  const data = (await res.json()) as {
+    audio_base64?: string;
+    mime_type?: string;
+    ref_hash?: string;
+    duration_sec?: number;
+    gpu?: string;
+  };
+  if (!data.audio_base64) {
+    throw new Error('Colab GPU Server không trả về dữ liệu âm thanh.');
+  }
+
+  return {
+    audioBase64: data.audio_base64,
+    mimeType: data.mime_type || 'audio/wav',
+    refHash: data.ref_hash,
+    durationSec: data.duration_sec,
+    gpu: data.gpu,
+    normalizedText: preparedText,
+  };
+}

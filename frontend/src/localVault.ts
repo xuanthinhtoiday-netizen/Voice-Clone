@@ -5,6 +5,7 @@ const DB_VERSION = 1;
 const STORE_VOICES = 'voices';
 const STORE_JOBS = 'jobs';
 const HF_TOKEN_KEY = 'voxforge_hf_token';
+const F5_SERVER_URL_KEY = 'voxforge_f5_server_url';
 
 interface StoredVoiceRow {
   id: string;
@@ -120,6 +121,28 @@ export function maskToken(token: string): string {
   const first = list[0];
   const maskedFirst = first.length <= 10 ? `${first.slice(0, 3)}***` : `${first.slice(0, 6)}...${first.slice(-4)}`;
   return list.length > 1 ? `${list.length} tokens (${maskedFirst}, ...)` : maskedFirst;
+}
+
+export function getLocalF5ServerUrl(): string {
+  try {
+    return window.localStorage.getItem(F5_SERVER_URL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setLocalF5ServerUrl(url: string): string {
+  const clean = url.trim().replace(/\/+$/, '');
+  try {
+    if (clean) {
+      window.localStorage.setItem(F5_SERVER_URL_KEY, clean);
+    } else {
+      window.localStorage.removeItem(F5_SERVER_URL_KEY);
+    }
+  } catch {
+    // ignore storage quota / private mode errors
+  }
+  return clean;
 }
 
 export const localVault = {

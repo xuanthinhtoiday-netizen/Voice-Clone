@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Download, KeyRound, Loader2 } from 'lucide-react';
+import { Check, Cpu, Download, ExternalLink, KeyRound, Loader2, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import type { EngineStatus } from '../types';
+
+const COLAB_NOTEBOOK_URL =
+  'https://colab.research.google.com/github/xuanthinhtoiday-netizen/Voice-Clone/blob/main/colab/F5_TTS_Viet_6000h_Server.ipynb';
 
 interface EngineHubProps {
   engines: EngineStatus[];
@@ -50,6 +53,15 @@ export const EngineHub: React.FC<EngineHubProps> = ({
   });
   const [savingToken, setSavingToken] = useState(false);
   const [runtime, setRuntime] = useState<'cloudflare-hono' | 'python-local'>('python-local');
+  const [f5UrlInput, setF5UrlInput] = useState('');
+  const [savedF5Url, setSavedF5Url] = useState('');
+  const [gpuHealth, setGpuHealth] = useState<{
+    ok: boolean;
+    gpu?: string;
+    model?: string;
+    error?: string;
+  } | null>(null);
+  const [testingGpu, setTestingGpu] = useState(false);
 
   useEffect(() => {
     api
@@ -60,7 +72,56 @@ export const EngineHub: React.FC<EngineHubProps> = ({
       .getSettings()
       .then(setHfStatus)
       .catch(() => {});
+    const existingUrl = api.getF5ServerUrl();
+    if (existingUrl) {
+      setF5UrlInput(existingUrl);
+      setSavedF5Url(existingUrl);
+    }
   }, []);
+
+  const handleSaveF5Server = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = api.saveF5ServerUrl(f5UrlInput);
+    setSavedF5Url(cleaned);
+    setF5UrlInput(cleaned);
+    setGpuHealth(null);
+    setNotice(null);
+
+    if (!cleaned) {
+      setNotice('Đã ngắt kết nối Colab GPU Server (chuyển về Space công cộng).');
+      await onRefreshEngines();
+      return;
+    }
+
+    setTestingGpu(true);
+    try {
+      const res = await api.testF5Server(cleaned);
+      setGpuHealth(res);
+      if (res.ok) {
+        setNotice(
+          `Đã kết nối thành công ${res.gpu || 'GPU'} (${res.model || 'F5-TTS Việt 6000h'}) — sẵn sàng đọc không giới hạn ký tự!`
+        );
+      } else {
+        setNotice(res.error || 'Chưa kết nối được tới link Colab GPU.');
+      }
+      await onRefreshEngines();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Không kiểm tra được kết nối GPU.';
+      setGpuHealth({ ok: false, error: msg });
+      setNotice(msg);
+    } finally {
+      setTestingGpu(false);
+    }
+  };
+
+  const handleClearF5Server = async () => {
+    api.saveF5ServerUrl('');
+    setF5UrlInput('');
+    setSavedF5Url('');
+    setGpuHealth(null);
+    setNotice('Đã xóa link Colab GPU Server.');
+    await onRefreshEngines();
+  };
 
   const handleSaveToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,6 +271,80 @@ export const EngineHub: React.FC<EngineHubProps> = ({
           );
         })}
       </div>
+
+      {/* Dedicated Google Colab / Kaggle T4 GPU Server (Unlimited, Free, Zero Quota) */}
+      {runtime === 'cloudflare-hono' && (
+        <form onSubmit={handleSaveF5Server} className="panel rounded-xl p-5 space-y-3.5 border-[#111315]/15">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-[#111315]" />
+              <h2 className="text-[14.5px] font-semibold text-[#111315]">
+                GPU Server riêng — Google Colab / Kaggle T4 miễn phí (Không giới hạn ký tự)
+              </h2>
+            </div>
+            <a
+              href={COLAB_NOTEBOOK_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg btn-primary text-xs font-medium inline-flex items-center gap-1.5"
+            >
+              <span>Mở Google Colab (1-Click)</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+
+          <p className="text-xs text-[#5C626E] leading-relaxed">
+            Bấm <strong>Mở Google Colab</strong> → chọn <strong>Runtime → Change runtime type → T4 GPU</strong> → bấm <strong>Run all</strong> (~2 phút tải F5-TTS Việt 6000h). Sau đó copy link <code className="font-mono-tech text-[#111315]">https://xxxx.trycloudflare.com</code> dán vào đây để đọc truyện dài 10.000–100.000+ ký tự hoàn toàn miễn phí, không bao giờ bị khóa ZeroGPU.
+          </p>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="url"
+              value={f5UrlInput}
+              onChange={(e) => setF5UrlInput(e.target.value)}
+              placeholder="https://xxxx-xxxx-xxxx.trycloudflare.com"
+              className="flex-1 px-3 py-2 rounded-lg bg-white border border-[#DCDFE4] text-xs font-mono-tech text-[#111315] placeholder-[#9CA3AF] focus:outline-none focus:border-[#111315]"
+            />
+            <button
+              type="submit"
+              disabled={testingGpu}
+              className="px-4 py-2 rounded-lg btn-primary text-xs font-medium cursor-pointer shrink-0 flex items-center gap-1.5 disabled:opacity-60"
+            >
+              {testingGpu && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>{testingGpu ? 'Đang kiểm tra...' : 'Lưu & Kiểm tra GPU'}</span>
+            </button>
+            {savedF5Url && (
+              <button
+                type="button"
+                onClick={handleClearF5Server}
+                className="p-2 rounded-lg btn-secondary text-[#DC2626] cursor-pointer shrink-0"
+                title="Ngắt kết nối Colab GPU"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 text-xs font-mono-tech pt-0.5">
+            {gpuHealth?.ok ? (
+              <span className="text-[#15803D] font-medium flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5" />
+                Đang kết nối: {gpuHealth.gpu} · {gpuHealth.model}
+              </span>
+            ) : gpuHealth && !gpuHealth.ok ? (
+              <span className="text-[#DC2626]">{gpuHealth.error}</span>
+            ) : savedF5Url ? (
+              <span className="text-[#1D4ED8]">
+                Đã lưu GPU Server: {savedF5Url} (nhấn &ldquo;Lưu &amp; Kiểm tra GPU&rdquo; để kiểm tra)
+              </span>
+            ) : (
+              <span className="text-[#717784]">
+                Trạng thái: Chưa gắn Colab GPU (đang dùng Hugging Face Space công cộng)
+              </span>
+            )}
+          </div>
+        </form>
+      )}
 
       {/* Optional Hugging Face Token for Free NVIDIA A10G GPU Speed */}
       <form onSubmit={handleSaveToken} className="panel rounded-xl p-5 space-y-3">

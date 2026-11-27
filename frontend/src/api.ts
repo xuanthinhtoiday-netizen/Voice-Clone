@@ -9,9 +9,11 @@ import {
   type WordBoundary,
 } from './clientAudio';
 import {
+  getLocalF5ServerUrl,
   getLocalHfToken,
   localVault,
   maskToken,
+  setLocalF5ServerUrl,
   setLocalHfToken,
 } from './localVault';
 import type {
@@ -34,6 +36,10 @@ function buildHeaders(extra?: HeadersInit): Headers {
   const hfToken = getLocalHfToken();
   if (hfToken && !headers.has('X-HF-Token')) {
     headers.set('X-HF-Token', hfToken);
+  }
+  const f5ServerUrl = getLocalF5ServerUrl();
+  if (f5ServerUrl && !headers.has('X-F5-Server-Url')) {
+    headers.set('X-F5-Server-Url', f5ServerUrl);
   }
   return headers;
 }
@@ -153,12 +159,20 @@ async function fetchCloneChunkWithRetry(
     ref_audio_base64?: string;
     ref_filename: string;
     ref_mime_type: string;
+    ref_text?: string;
+    ref_hash?: string;
     uploaded_ref_path?: string;
     speed: number;
     normalize_vietnamese?: boolean;
   },
   signal: AbortSignal
-): Promise<{ bytes: Uint8Array; mimeType: string; uploadedRefPath?: string }> {
+): Promise<{
+  bytes: Uint8Array;
+  mimeType: string;
+  uploadedRefPath?: string;
+  refHash?: string;
+  durationSec?: number;
+}> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal.aborted) throw new Error('Đã hủy tiến trình.');
@@ -167,6 +181,8 @@ async function fetchCloneChunkWithRetry(
         audio_base64: string;
         mime_type: string;
         uploaded_ref_path?: string;
+        ref_hash?: string;
+        duration_sec?: number;
       }>('/api/tts/clone-chunk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,6 +193,8 @@ async function fetchCloneChunkWithRetry(
         bytes: base64ToUint8(data.audio_base64),
         mimeType: data.mime_type || 'audio/wav',
         uploadedRefPath: data.uploaded_ref_path,
+        refHash: data.ref_hash,
+        durationSec: data.duration_sec,
       };
     } catch (err) {
       if (signal.aborted) throw new Error('Đã hủy tiến trình.');
@@ -200,6 +218,7 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
   let refAudioB64 = '';
   let refFilename = 'ref.wav';
   let refMime = 'audio/wav';
+  let refText = '';
   let voiceLabel = payload.voice_id;
 
   if (isClone && payload.cloned_voice_id) {
@@ -211,11 +230,12 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
     refAudioB64 = await blobToBase64(optimalBlob);
     refFilename = row.profile.audio_filename || 'ref.wav';
     refMime = optimalBlob.type || 'audio/wav';
+    refText = row.profile.ref_text || '';
     voiceLabel = row.profile.name;
   }
 
-  // Batch up to 1000 chars per GPU call (F5-TTS worker auto-segments every ~115 chars inside 1 GPU run!)
-  const maxChars = 1000;
+  // Edge: 1000 chars/chunk (4x parallel); F5-TTS Việt: 2400 chars/call (internally splits ~115 chars)
+  const maxChars = effectiveEngine === 'edge' ? 1000 : 2400;
 
   const textChunks = smartChunkText(payload.text, maxChars);
   if (textChunks.length === 0) {
@@ -269,6 +289,7 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
       const results: Array<DecodedChunkAudio | null> = new Array(textChunks.length).fill(null);
       let completedCount = 0;
       let cachedUploadedRefPath: string | undefined;
+      let cachedRefHash: string | undefined;
 
       const processChunk = async (idx: number) => {
         if (controller.signal.aborted) return;
@@ -299,9 +320,11 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
           const out = await fetchCloneChunkWithRetry(
             {
               text: textChunks[idx],
-              ref_audio_base64: refAudioB64,
+              ref_audio_base64: cachedRefHash ? undefined : refAudioB64,
               ref_filename: refFilename,
               ref_mime_type: refMime,
+              ref_text: refText,
+              ref_hash: cachedRefHash,
               uploaded_ref_path: cachedUploadedRefPath,
               speed: payload.speed,
               normalize_vietnamese: true,
@@ -311,14 +334,18 @@ async function runCloudSynthesis(payload: SynthesizePayload): Promise<JobRecord>
           if (out.uploadedRefPath) {
             cachedUploadedRefPath = out.uploadedRefPath;
           }
+          if (out.refHash) {
+            cachedRefHash = out.refHash;
+          }
+          const estDur = out.durationSec || Math.max(1, textChunks[idx].length / 15);
           results[idx] = {
             bytes: out.bytes,
             mimeType: out.mimeType,
             text: textChunks[idx],
-            durationSec: Math.max(1, textChunks[idx].length / 15),
+            durationSec: estDur,
             pauseAfterMs: payload.pause_ms,
           };
-          record.chunks[idx].duration_sec = Number(results[idx]!.durationSec.toFixed(1));
+          record.chunks[idx].duration_sec = Number(estDur.toFixed(1));
         }
 
         record.chunks[idx].status = 'done';
@@ -435,7 +462,7 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
     try {
       const voiceCache = new Map<
         string,
-        { b64: string; filename: string; mime: string; uploadedPath?: string }
+        { b64: string; filename: string; mime: string; refText: string; uploadedPath?: string; refHash?: string }
       >();
       const decodedChunks: DecodedChunkAudio[] = [];
 
@@ -455,18 +482,21 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
               b64: await blobToBase64(optimalBlob),
               filename: row.profile.audio_filename || 'ref.wav',
               mime: optimalBlob.type || 'audio/wav',
+              refText: row.profile.ref_text || '',
             };
             voiceCache.set(ln.cloned_voice_id, cached);
           }
 
-          const subChunks = smartChunkText(ln.text.trim(), 1000);
+          const subChunks = smartChunkText(ln.text.trim(), 2400);
           for (let sIdx = 0; sIdx < subChunks.length; sIdx++) {
             const out = await fetchCloneChunkWithRetry(
               {
                 text: subChunks[sIdx],
-                ref_audio_base64: cached.b64,
+                ref_audio_base64: cached.refHash ? undefined : cached.b64,
                 ref_filename: cached.filename,
                 ref_mime_type: cached.mime,
+                ref_text: cached.refText,
+                ref_hash: cached.refHash,
                 uploaded_ref_path: cached.uploadedPath,
                 speed: ln.speed,
                 normalize_vietnamese: true,
@@ -474,12 +504,13 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
               controller.signal
             );
             if (out.uploadedRefPath) cached.uploadedPath = out.uploadedRefPath;
+            if (out.refHash) cached.refHash = out.refHash;
             decodedChunks.push({
               bytes: out.bytes,
               mimeType: out.mimeType,
               text: subChunks[sIdx],
               speaker: ln.speaker,
-              durationSec: Math.max(1, subChunks[sIdx].length / 15),
+              durationSec: out.durationSec || Math.max(1, subChunks[sIdx].length / 15),
               pauseAfterMs: sIdx === subChunks.length - 1 ? ln.pause_after_ms : 180,
             });
           }
@@ -560,6 +591,26 @@ async function runCloudDialogue(payload: DialoguePayload): Promise<JobRecord> {
 
 export const api = {
   getRuntime: detectRuntime,
+
+  getF5ServerUrl: () => getLocalF5ServerUrl(),
+
+  saveF5ServerUrl: (url: string) => setLocalF5ServerUrl(url),
+
+  testF5Server: async (url: string) => {
+    const res = await fetch('/api/f5-server/test', {
+      method: 'POST',
+      headers: buildHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url }),
+    });
+    const data = (await res.json()) as {
+      ok: boolean;
+      gpu?: string;
+      model?: string;
+      cached_voices?: number;
+      error?: string;
+    };
+    return data;
+  },
 
   getEngines: async () => {
     const res = await apiFetch<{ engines: EngineStatus[]; ffmpeg_ready: boolean; runtime?: string }>(

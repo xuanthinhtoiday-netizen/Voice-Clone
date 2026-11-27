@@ -109,6 +109,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
   const availableCloneOptions = useMemo(() => {
     const hasLocal = engines.some((e) => e.id === 'vizipvoice');
+    const f5Meta = engines.find((e) => e.id === 'f5_gpu');
     if (hasLocal) {
       return [
         { id: 'f5_gpu' as EngineId, label: 'F5-TTS Việt 6000h', sub: 'Flow-Matching · GPU Cloud' },
@@ -118,8 +119,8 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     return [
       {
         id: 'f5_gpu' as EngineId,
-        label: 'F5-TTS Việt 6000h',
-        sub: 'Flow-Matching · Chuẩn âm sắc · Chống nuốt chữ',
+        label: f5Meta?.name || 'F5-TTS Việt 6000h',
+        sub: f5Meta?.badge || 'Flow-Matching · Chuẩn âm sắc · Chống nuốt chữ',
       },
     ];
   }, [engines]);
@@ -190,7 +191,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     const words = trimmed ? trimmed.split(/\s+/).length : 0;
     const chunkSize =
       engine === 'f5_gpu'
-        ? 1000
+        ? 2400
         : engine === 'vizipvoice'
           ? 160
           : engine === 'vieneu'
@@ -466,7 +467,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         onClick={onGoToEngines}
                         className="px-2.5 py-1 rounded-md btn-primary text-xs font-medium cursor-pointer"
                       >
-                        Thêm HF Token
+                        Gắn Colab GPU miễn phí
                       </button>
                     )}
                   {activeJob.status === 'completed' && activeJob.audio_url && (
